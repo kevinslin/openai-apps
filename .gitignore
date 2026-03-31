@@ -1,3 +1,4 @@
 node_modules
 local
 .vscode/settings.json
+AGENTS.override.md
