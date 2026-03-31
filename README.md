@@ -1,5 +1,7 @@
 # OpenAI Apps
 
+<img width="1024" height="1024" alt="aec40c42-1b24-473b-8465-956dd19a5302" src="https://github.com/user-attachments/assets/de90cd83-d56d-4b3b-be25-f81d1b8524c6" />
+
 Use [ChatGPT apps](https://chatgpt.com/features/apps/) inside OpenClaw.
 
 ## Quickstart
