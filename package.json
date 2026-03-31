@@ -4,11 +4,18 @@
   "private": true,
   "description": "Bundle-owned MCP bridge for exposing OpenAI apps in OpenClaw",
   "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
   "dependencies": {
     "@mariozechner/pi-ai": "0.63.2",
     "@modelcontextprotocol/sdk": "1.28.0",
     "codex-app-server-sdk": "0.1.0",
+    "openclaw": "2026.3.28",
     "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.2"
   },
   "openclaw": {
     "bundle": {
