@@ -1,19 +1,19 @@
 # OpenAI Apps
 
-<img width="256" height="256" alt="aec40c42-1b24-473b-8465-956dd19a5302" src="https://github.com/user-attachments/assets/de90cd83-d56d-4b3b-be25-f81d1b8524c6" />
+<img width="256" height="256" alt="OpenAI Apps logo" src="https://github.com/user-attachments/assets/de90cd83-d56d-4b3b-be25-f81d1b8524c6" />
 
 Use [ChatGPT apps](https://chatgpt.com/features/apps/) inside OpenClaw.
 
 ## Prerequisites
 
-Requires [openai provider](https://docs.openclaw.ai/providers/openai#openai) with chatgpt signin.
+Requires the [OpenAI provider](https://docs.openclaw.ai/providers/openai#openai) with ChatGPT sign-in.
 
 ## Quickstart
 
 1. Clone this repo:
 
 ```bash
-git clone https://github.com/kevinlin-openai/openclaw.git
+git clone https://github.com/kevinslin/openai-apps.git
 cd openai-apps
 ```
 
@@ -57,29 +57,26 @@ openclaw models auth login --provider openai-codex
 
 ## Usage
 
-```
-summarize my recent email
+```text
+summarize my recent emails
 ```
 <img width="2026" height="678" alt="CleanShot 2026-03-30 at 18 38 20@2x" src="https://github.com/user-attachments/assets/24141007-7c1c-4e4a-9123-2fe8fd28f9b4" />
 
-```
-add a calendar event reminding me to walk my gerbil tomorrow at 7am for 30min
+```text
+add a calendar event reminding me to walk my gerbil tomorrow at 7am for 30 minutes
 ```
 <img width="2192" height="340" alt="CleanShot 2026-03-30 at 18 39 50@2x" src="https://github.com/user-attachments/assets/5fba2827-016b-4353-bc53-a0c5375b3b5c" />
 
 
 ## Configuration
 
-All bundle config lives under `plugins.entries.openai-apps.config`.
+All bundle config lives under `plugins.entries["openai-apps"].config`.
 
 
-- `allow_destructive_actions`: Controls destructive app-action elicitations. Use `"always"` to auto-accept or `"never"` to auto-decline. Defaults to `"never"`.
+- `allow_destructive_actions`: Controls destructive app-action elicitations. Use `"always"` to auto-accept, `"on-request"` to prompt through the MCP client when supported, or `"never"` to auto-decline. Defaults to `"never"`.
 - `connectors`: Per-app enablement map. Use explicit connector ids like `gmail`, `linear`, or `google_calendar`.
 - `connectors["*"]`: Enables all accessible ChatGPT apps, with explicit connector entries able to disable individual apps.
 - `appServer.command` / `appServer.args`: Override how the bundle launches `codex app-server`.
-
-The ChatGPT apps endpoint is internal to the bundle and is not configurable.
-
 
 Example with one explicitly enabled connector:
 
@@ -159,7 +156,8 @@ You can combine wildcard enablement with explicit disables:
 ```
 
 ## Limitations
-- currently, destructive actions do not support on demand elicitation (dynamic prompting for permissions).[elicitations](https://modelcontextprotocol.io/specification/draft/client/elicitation#capabilities) are currently not supported in the openclaw pi mcp client 
+
+- Currently, destructive actions do not support on-demand elicitation (dynamic permission prompts). The OpenClaw PI MCP client does not currently support MCP [elicitations](https://modelcontextprotocol.io/specification/draft/client/elicitation#capabilities).
 
 
 ## Runtime State
@@ -223,13 +221,23 @@ Setting the developer message
 
 ```js
 [
-      {
-        "approvalPolicy": "never",
-        "developerInstructions": "You are servicing one OpenClaw connector tool call for Gmail.  Use the app mentioned in the user input instead of browsing or relying on unrelated tools.  Do not use browser, shell, file, web, image, memory, or unrelated tools.  Do not ask follow-up questions.  Do not fabricate success.  Return only JSON matching the schema {"status":"success|failure","result":"string","error":"string"}.", "ephemeral": false,
-        "experimentalRawEvents": false,
-        "persistExtendedHistory": true,
+  {
+    approvalPolicy: {
+      granular: {
+        sandbox_approval: false,
+        rules: false,
+        skill_approval: false,
+        request_permissions: true,
+        mcp_elicitations: true,
       },
-  ]
+    },
+    developerInstructions:
+      'You are servicing one OpenClaw connector tool call for Gmail. Use the app mentioned in the user input instead of browsing or relying on unrelated tools. Do not use browser, shell, file, web, image, memory, or unrelated tools. Do not ask follow-up questions. Do not fabricate success. Return only JSON matching the schema {"status":"success|failure","result":"string","error":"string"}.',
+    ephemeral: false,
+    experimentalRawEvents: false,
+    persistExtendedHistory: true,
+  },
+];
 ```
 
 Example call
