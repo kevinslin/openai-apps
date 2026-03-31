@@ -2,6 +2,55 @@
 
 Use ChatGPT apps inside OpenClaw.
 
+## Quickstart
+
+1. Clone this repo:
+
+```bash
+git clone https://github.com/kevinlin-openai/openclaw.git
+cd openai-apps
+```
+
+2. Install the local bundle into OpenClaw:
+
+```bash
+openclaw plugins install .
+```
+
+3. Enable the bundle in your OpenClaw config:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "openai": {
+        "enabled": true
+      },
+      "openai-apps": {
+        "enabled": true,
+        "config": {
+          "allow_destructive_actions": "always",
+          "connectors": {
+            "*": {
+              "enabled": true
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+4. Authenticate once with OpenAI Codex:
+
+```bash
+openclaw models auth login --provider openai-codex
+```
+
+5. Restart the OpenClaw gateway so plugin config changes are loaded.
+6. Open your normal OpenClaw chat/TUI session and issue an app-backed request (examples in `Usage` below).
+
 # Usage
 
 ```
@@ -15,47 +64,15 @@ add a calendar event reminding me to walk my gerbil tomorrow at 7am for 30min
 <img width="2192" height="340" alt="CleanShot 2026-03-30 at 18 39 50@2x" src="https://github.com/user-attachments/assets/5fba2827-016b-4353-bc53-a0c5375b3b5c" />
 
 
-## What It Does
+## Internals
 
 This bundle:
 
 - publishes one local MCP tool per enabled ChatGPT app connector
 - uses `codex app-server` as the single authority for both tool publication and invocation
 - reads OpenClaw-rooted `openai-codex` auth and projects it into the spawned app-server session
-- reuses one bundle-owned app-server home at `plugin-runtimes/openai-apps/codex-home` for both snapshot refresh and tool invocation
-- caches canonical connector records derived from `app/list` in the plugin runtime state directory and refreshes them on demand
 
 Published tool names use the `chatgpt_app_<connectorId>` namespace. Each tool accepts a single natural-language `request` string and executes the app on a fresh app-server thread.
-
-The bundle owns app exposure and app-specific config. It does not require changes under repo-root `src/`.
-
-## Install From Bundle
-
-`openai-apps` is a bundled plugin in this repo. If you are running from this source tree, there is no separate package install step.
-
-Enable it in your OpenClaw config:
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "openai": {
-        "enabled": true
-      },
-      "openai-apps": {
-        "enabled": true
-      }
-    }
-  }
-}
-```
-
-Then restart the gateway.
-
-Notes:
-
-- `openai` should stay enabled because the bundle relies on OpenClaw-managed `openai-codex` auth.
-- `openai-apps` owns the apps config described below.
 
 ## Configuration
 
@@ -140,7 +157,7 @@ You can combine wildcard enablement with explicit disables:
 
 ## Config Reference
 
-- `allow_destructive_actions`: Controls destructive app-action elicitations. Use `"always"` to auto-accept, `"on-request"` to prompt the MCP caller with accept or decline, or `"never"` to auto-decline. Defaults to `"never"`.
+- `allow_destructive_actions`: Controls destructive app-action elicitations. Use `"always"` to auto-accept or `"never"` to auto-decline. Defaults to `"never"`.
 - `connectors`: Per-app enablement map. Use explicit connector ids like `gmail`, `linear`, or `google_calendar`.
 - `connectors["*"]`: Enables all accessible ChatGPT apps, with explicit connector entries able to disable individual apps.
 - `appServer.command` / `appServer.args`: Override how the bundle launches `codex app-server`.
@@ -187,64 +204,6 @@ Example:
   ]
 }
 ```
-
-## Integration Tests
-
-Run the integration suite through the extension harness:
-
-```bash
-node --import tsx ./local/openai-apps-tests/test-chatapps-integ.ts simple
-node --import tsx ./local/openai-apps-tests/test-chatapps-integ.ts full
-node --import tsx ./local/openai-apps-tests/test-chatapps-integ.ts write
-```
-
-Mode coverage:
-
-- `simple`: runs `list tools` plus the Gmail call.
-- `full`: runs `list tools`, Gmail, Linear, and Google Calendar.
-- `write`: runs `list tools` plus Google Calendar write-policy checks for `allowDestructiveActions=always` and `allowDestructiveActions=never`.
-
-The harness writes artifacts under `/tmp/claw-chat-apps/`.
-
-### Harness Setup
-
-The live harness is intentionally isolated from your normal OpenClaw profile.
-It always runs under the dedicated profile `chatapps-integ` with state rooted
-at `~/.openclaw-chatapps-integ/`.
-
-Setup details:
-
-- The harness creates or rewrites the `chatapps-integ` config before each run.
-- It uses a dedicated workspace at `~/.openclaw-chatapps-integ/workspace`.
-- That workspace is deleted and recreated for each run.
-- The profile forces `plugins.slots.memory = "none"`.
-- The profile disables `agents.defaults.memorySearch`.
-- The profile disables the internal `session-memory` hook.
-- The profile sets `agents.defaults.skipBootstrap = true` so the workspace stays empty instead of being seeded with bootstrap files like `SOUL.md`, `USER.md`, or `BOOTSTRAP.md`.
-
-This isolation matters because the connector smoke tests should exercise the
-ChatGPT app invocation path, not whatever memory files or bootstrap context may
-exist in a developer's normal workspace.
-
-### Auth Requirements
-
-The harness expects reusable `openai-codex` OAuth state to already exist in at
-least one local OpenClaw profile. Before running the live suite:
-
-```bash
-openclaw models auth login --provider openai-codex
-```
-
-The harness will copy that login state into the `chatapps-integ` profile when
-possible. If no reusable login is found, the run fails fast with an auth setup
-error.
-
-### Useful Notes
-
-- Override the gateway port with `OPENCLAW_GATEWAY_PORT=<port>` if needed.
-- The harness starts a fresh dev gateway and TUI session for each live run.
-- The final artifacts include per-leg summaries plus a Showboat demo doc under
-  `/tmp/claw-chat-apps/`.
 
 ## Appendix
 
