@@ -46,14 +46,8 @@ openclaw plugins install .
 }
 ```
 
-4. Authenticate once with OpenAI Codex:
-
-```bash
-openclaw models auth login --provider openai-codex
-```
-
-5. Restart the OpenClaw gateway so plugin config changes are loaded.
-6. Open your normal OpenClaw chat/TUI session and issue an app-backed request (examples in `Usage` below).
+4. Restart the OpenClaw gateway so plugin config changes are loaded.
+5. Open your normal OpenClaw chat/TUI session and issue an app-backed request (examples in `Usage` below).
 
 ## Usage
 
