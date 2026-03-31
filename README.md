@@ -4,6 +4,10 @@
 
 Use [ChatGPT apps](https://chatgpt.com/features/apps/) inside OpenClaw.
 
+## Prerequisites
+
+Requires [openai provider](https://docs.openclaw.ai/providers/openai#openai) with chatgpt signin.
+
 ## Quickstart
 
 1. Clone this repo:
@@ -25,9 +29,7 @@ openclaw plugins install .
 {
   "plugins": {
     "entries": {
-      "openai": {
-        "enabled": true
-      },
+      ...
       "openai-apps": {
         "enabled": true,
         "config": {
