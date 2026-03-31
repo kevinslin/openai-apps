@@ -247,73 +247,6 @@ function buildDeveloperInstructions(route: AppServerInvocationRoute): string {
     .join("\n");
 }
 
-function formatQuestionPrompts(
-  questions: protocol.v2.ToolRequestUserInputParams["questions"],
-): string {
-  return questions
-    .map((question) => question.question)
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    .join(" ");
-}
-
-function pickAnswerFromQuestion(question: unknown): string {
-  if (typeof question !== "object" || question === null) {
-    return "yes";
-  }
-
-  const options = Array.isArray((question as { options?: unknown[] }).options)
-    ? (question as { options: unknown[] }).options
-    : [];
-  const labels = options
-    .map((option) =>
-      typeof option === "object" &&
-      option !== null &&
-      typeof (option as { label?: unknown }).label === "string"
-        ? (option as { label: string }).label
-        : null,
-    )
-    .filter((label): label is string => label !== null);
-
-  const preferred = labels.find((label) =>
-    /\b(approve|allow|continue|send|yes|confirm)\b/i.test(label),
-  );
-  if (preferred) {
-    return preferred.replace(" (Recommended)", "");
-  }
-
-  const recommended = labels.find((label) => label.includes("(Recommended)"));
-  if (recommended) {
-    return recommended.replace(" (Recommended)", "");
-  }
-
-  return labels[0]?.replace(" (Recommended)", "") ?? "yes";
-}
-
-function buildUserInputResponse(params: unknown): protocol.v2.ToolRequestUserInputResponse {
-  const answers: protocol.v2.ToolRequestUserInputResponse["answers"] = {};
-  if (
-    typeof params !== "object" ||
-    params === null ||
-    !Array.isArray((params as { questions?: unknown[] }).questions)
-  ) {
-    return { answers };
-  }
-
-  for (const question of (params as { questions: unknown[] }).questions) {
-    if (
-      typeof question !== "object" ||
-      question === null ||
-      typeof (question as { id?: unknown }).id !== "string"
-    ) {
-      continue;
-    }
-    answers[(question as { id: string }).id] = {
-      answers: [pickAnswerFromQuestion(question)],
-    };
-  }
-  return { answers };
-}
-
 function extractTurnText(response: ThreadReadResponse, turnId: string): string | null {
   const turn = response.thread.turns.find((entry) => entry.id === turnId);
   if (!turn) {
@@ -576,7 +509,6 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
     let serverRequestError: Error | null = null;
     let autoDeclinedDestructiveAction: McpServerElicitationRequestParams | null = null;
     const handledServerRequests = new Set<string>([
-      "item/tool/requestUserInput",
       "item/permissions/requestApproval",
       "mcpServer/elicitation/request",
       "item/commandExecution/requestApproval",
@@ -596,11 +528,6 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
       );
     };
 
-    unsubscribeHandlers.push(
-      client.handleServerRequest("item/tool/requestUserInput", async (context) => {
-        return buildUserInputResponse(context.request.params);
-      }),
-    );
     unsubscribeHandlers.push(
       client.handleServerRequest("item/permissions/requestApproval", async (context) => {
         return {

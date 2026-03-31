@@ -163,16 +163,12 @@ Ordered call path:
    ```ts
    // Source: extensions/openai-apps/src/app-server-invoker.ts#L490-L566
    handledServerRequests := new Set([
-     "item/tool/requestUserInput",
      "item/permissions/requestApproval",
      "mcpServer/elicitation/request",
      "item/commandExecution/requestApproval",
      "item/fileChange/requestApproval",
      "account/chatgptAuthTokens/refresh",
    ])
-   client.handleServerRequest("item/tool/requestUserInput", async context =>
-     buildUserInputResponse(context.request.params)
-   )
    client.handleServerRequest("item/permissions/requestApproval", async context => ({
      permissions: { ...requested network/fileSystem permissions... },
      scope: "turn",
@@ -252,7 +248,6 @@ State transitions / outputs:
 
 Branch points:
 
-- `item/tool/requestUserInput` is auto-answered instead of failing.
 - `item/permissions/requestApproval` is mirrored back with requested permissions and `scope: "turn"`.
 - `mcpServer/elicitation/request` is routed by `allow_destructive_actions`: auto-accepted for `"always"`, relayed outward for `"on-request"`, and declined for `"never"`.
 - Command/file-change approvals and any unsupported server request are converted into stored `serverRequestError`.

@@ -44,7 +44,6 @@ type ChatgptAppsRpcClient = {
           chatgptPlanType?: string | null;
         }>,
   ): () => void;
-  request(method: string, params?: unknown): Promise<unknown>;
   loginAccount(params: LoginAccountParams): Promise<LoginAccountResponse>;
   readAccount(params: GetAccountParams): Promise<GetAccountResponse>;
   getAuthStatus(params: {
@@ -70,9 +69,6 @@ type AppServerSessionParams = {
     env: NodeJS.ProcessEnv;
   }) => Promise<ChatgptAppsRpcClient>;
 };
-
-type LoggedInAppServerAuth = Extract<ChatgptAppsResolvedAuth, { status: "ok" }>;
-
 function toLoginParams(
   auth: Extract<ChatgptAppsResolvedAuth, { status: "ok" }>,
 ): LoginAccountParams {
@@ -107,7 +103,6 @@ async function createAppServerRpcClient(factoryParams: {
           chatgptPlanType: response.chatgptPlanType ?? null,
         };
       }),
-    request: (method, requestParams) => client.request(method, requestParams),
     loginAccount: (loginParams) => client.loginAccount(loginParams),
     readAccount: (readParams) => client.readAccount(readParams),
     getAuthStatus: (statusParams) => client.getAuthStatus(statusParams),
@@ -121,10 +116,7 @@ async function createAppServerRpcClient(factoryParams: {
 
 async function withLoggedInAppServerSession<TResult>(
   params: AppServerSessionParams,
-  handler: (context: {
-    auth: LoggedInAppServerAuth;
-    client: ChatgptAppsRpcClient;
-  }) => Promise<TResult>,
+  handler: (context: { client: ChatgptAppsRpcClient }) => Promise<TResult>,
 ): Promise<TResult> {
   const env = params.env ?? process.env;
   const auth = await params.resolveProjectedAuth();
@@ -172,27 +164,11 @@ async function withLoggedInAppServerSession<TResult>(
       appsConfigWriteGate: params.appsConfigWriteGate,
     });
 
-    return await handler({ auth, client });
+    return await handler({ client });
   } finally {
     unsubscribe?.();
     await client.close();
   }
-}
-
-export async function callAppServerMethod(
-  params: AppServerSessionParams & {
-    method: string;
-    methodParams?: unknown;
-  },
-): Promise<unknown> {
-  const method = params.method.trim();
-  if (!method) {
-    throw new Error("App server method name is required");
-  }
-
-  return await withLoggedInAppServerSession(params, async ({ client }) => {
-    return await client.request(method, params.methodParams);
-  });
 }
 
 export async function captureAppServerSnapshot(
