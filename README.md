@@ -24,6 +24,10 @@ openclaw plugins install .
 ```
 
 3. Enable the bundle in your OpenClaw config:
+- set allow_destructive_actions to `always` in order to support write actions (eg. updating google calendar). default is `never`
+
+> [!WARNING]
+> Enabling write actions (`allow_destructive_actions: "always"`) increases risk. Agent mistakes or prompt-injection attacks can trigger unintended destructive operations (for example, deleting or modifying data in connected apps like email, calendar, or task systems). Keep this set to `"never"` unless you explicitly accept that risk.
 
 ```json
 {
@@ -33,7 +37,7 @@ openclaw plugins install .
       "openai-apps": {
         "enabled": true,
         "config": {
-          "allow_destructive_actions": "always",
+          "allow_destructive_actions": "never",
           "connectors": {
             "*": {
               "enabled": true
