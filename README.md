@@ -1,6 +1,19 @@
 # OpenAI Apps
 
-Bundle-owned MCP bridge for exposing ChatGPT apps inside OpenClaw.
+Use ChatGPT apps inside OpenClaw.
+
+# Usage
+
+```
+summarize my recent email
+```
+<img width="2026" height="678" alt="CleanShot 2026-03-30 at 18 38 20@2x" src="https://github.com/user-attachments/assets/24141007-7c1c-4e4a-9123-2fe8fd28f9b4" />
+
+```
+add a calendar event reminding me to walk my gerbil tomorrow at 7am for 30min
+```
+<img width="2192" height="340" alt="CleanShot 2026-03-30 at 18 39 50@2x" src="https://github.com/user-attachments/assets/5fba2827-016b-4353-bc53-a0c5375b3b5c" />
+
 
 ## What It Does
 
