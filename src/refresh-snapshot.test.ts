@@ -14,7 +14,6 @@ function createConfig(connectors?: Record<string, { enabled: boolean }>): OpenCl
       entries: {
         "openai-apps": {
           config: {
-            enabled: true,
             connectors: connectors ?? {},
           },
         },
@@ -179,6 +178,46 @@ describe("ensureFreshSnapshot", () => {
       reason: "refresh",
       message: "Timed out refreshing ChatGPT apps snapshot",
     });
+  });
+
+  it("ignores legacy nested enabled=false and still refreshes", async () => {
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-chatgpt-apps-"));
+    const env = {
+      OPENCLAW_STATE_DIR: tempRoot,
+      HOME: tempRoot,
+    };
+    const captureSnapshot = vi.fn(async () => createCapture());
+
+    const result = await ensureFreshSnapshot({
+      loadOpenClawConfig: () =>
+        ({
+          plugins: {
+            entries: {
+              "openai-apps": {
+                config: {
+                  enabled: false,
+                  connectors: {},
+                },
+              },
+            },
+          },
+        }) as OpenClawConfig,
+      env,
+      now: () => new Date("2026-03-29T18:01:00.000Z").getTime(),
+      resolveProjectedAuth: async () => ({
+        status: "ok",
+        accessToken: "access-token",
+        accountId: "acct_123",
+        planType: null,
+        profileId: "openai-codex:default",
+        identity: { email: "user@example.com", profileName: "user@example.com" },
+      }),
+      captureSnapshot,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.status === "ok" ? result.source : "unexpected").toBe("refresh");
+    expect(captureSnapshot).toHaveBeenCalledTimes(1);
   });
 
   it("invalidates an old v1 snapshot and rewrites it as connector metadata", async () => {

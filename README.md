@@ -73,7 +73,6 @@ Example with one explicitly enabled connector:
       "openai-apps": {
         "enabled": true,
         "config": {
-          "enabled": true,
           "allow_destructive_actions": "never",
           "connectors": {
             "gmail": {
@@ -101,7 +100,6 @@ To enable all accessible ChatGPT apps, use `*`:
       "openai-apps": {
         "enabled": true,
         "config": {
-          "enabled": true,
           "allow_destructive_actions": "never",
           "connectors": {
             "*": {
@@ -124,7 +122,6 @@ You can combine wildcard enablement with explicit disables:
       "openai-apps": {
         "enabled": true,
         "config": {
-          "enabled": true,
           "allow_destructive_actions": "never",
           "connectors": {
             "*": {
@@ -143,7 +140,6 @@ You can combine wildcard enablement with explicit disables:
 
 ## Config Reference
 
-- `enabled`: Turns the bundle-owned ChatGPT apps bridge on or off.
 - `allow_destructive_actions`: Controls destructive app-action elicitations. Use `"always"` to auto-accept, `"on-request"` to prompt the MCP caller with accept or decline, or `"never"` to auto-decline. Defaults to `"never"`.
 - `connectors`: Per-app enablement map. Use explicit connector ids like `gmail`, `linear`, or `google_calendar`.
 - `connectors["*"]`: Enables all accessible ChatGPT apps, with explicit connector entries able to disable individual apps.

@@ -89,12 +89,10 @@ Ordered call path:
 1. Resolve plugin config and projected auth before any publication decision.
    ```ts
    // Source: extensions/openai-apps/src/mcp-bridge.ts#L268-L283
-   // Source: extensions/openai-apps/src/refresh-snapshot.ts#L59-L107
+   // Source: extensions/openai-apps/src/refresh-snapshot.ts#L60-L98
    openclawConfig := params.loadOpenClawConfig()
    config := resolveChatgptAppsConfig(openclawConfig.plugins?.entries?.["openai-apps"]?.config ?? {})
    statePaths := params.statePaths ?? resolveChatgptAppsStatePaths(env)
-   if !config.enabled
-     return { status: "error", reason: "disabled", ... }
    auth := await resolveProjectedAuth({ config: openclawConfig, agentDir: env.OPENCLAW_AGENT_DIR })
    if auth.status !== "ok"
      await writeRefreshDebug({ statePaths, debug: { status: "failure", message: auth.message } })
@@ -168,7 +166,6 @@ State transitions / outputs:
 
 Branch points:
 
-- `config.enabled === false` blocks publication immediately.
 - `auth.status !== "ok"` blocks publication and records a failed refresh-debug state.
 - `isSnapshotFresh(...) === true` skips the app-server refresh entirely.
 - Refresh timeouts and app-server errors are converted into `status: "error", reason: "refresh"` and then thrown by `getPublicationState()`.
@@ -270,7 +267,6 @@ External boundaries:
 
 | Name                                                               | Kind   | Where Read                                                                                                   | Effect on Flow                                                                                 |
 | ------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `plugins.entries["openai-apps"].config.enabled`                    | config | `extensions/openai-apps/src/refresh-snapshot.ts#L61-L76`                                                     | Disables publication before auth, cache, or refresh work runs.                                 |
 | `plugins.entries["openai-apps"].config.connectors`                 | config | `extensions/openai-apps/src/config.ts#L73-L85`, `extensions/openai-apps/src/mcp-bridge.ts#L50-L116`          | Controls wildcard enablement, explicit disables, and which connector records become MCP tools. |
 | `plugins.entries["openai-apps"].config.appServer.command/args`     | config | `extensions/openai-apps/src/config.ts#L77-L84`, `extensions/openai-apps/src/app-server-session.ts#L132-L147` | Chooses which app-server binary/session is used for snapshot refresh.                          |
 | `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`, `OPENCLAW_AGENT_DIR` | env    | `extensions/openai-apps/src/runtime-env.ts#L152-L191`, `extensions/openai-apps/src/state-paths.ts#L14-L42`   | Changes where config, auth store, snapshot, and refresh-debug files are resolved.              |

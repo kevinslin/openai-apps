@@ -9,7 +9,6 @@ import { buildDerivedAppsConfig, type ChatgptAppsConfig } from "./config.js";
 import type { ChatgptAppsStatePaths } from "./state-paths.js";
 
 const config: ChatgptAppsConfig = {
-  enabled: true,
   allowDestructiveActions: "always",
   appServer: {
     command: "codex",

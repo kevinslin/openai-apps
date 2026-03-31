@@ -19,7 +19,6 @@ function createConfig(
       entries: {
         "openai-apps": {
           config: {
-            enabled: true,
             connectors,
           },
         },
@@ -87,7 +86,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot: createPersistedSnapshot(),
         config: {
-          enabled: true,
           allowDestructiveActions: "never",
           appServer: { command: "codex", args: [] },
           connectors: { slack: { enabled: true } },
@@ -147,7 +145,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot,
         config: {
-          enabled: true,
           allowDestructiveActions: "never",
           appServer: { command: "codex", args: [] },
           connectors: { "*": { enabled: true } },
@@ -194,7 +191,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot,
         config: {
-          enabled: true,
           allowDestructiveActions: "never",
           appServer: { command: "codex", args: [] },
           connectors: { slack: { enabled: true } },
@@ -240,7 +236,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot,
         config: {
-          enabled: true,
           allowDestructiveActions: "never",
           appServer: { command: "codex", args: [] },
           connectors: { "*": { enabled: true } },
@@ -285,7 +280,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot,
         config: {
-          enabled: true,
           allowDestructiveActions: "never",
           appServer: { command: "codex", args: [] },
           connectors: { slack: { enabled: true } },
@@ -352,7 +346,6 @@ describe("ChatgptAppsMcpBridge", () => {
           source: "cache",
           snapshot,
           config: {
-            enabled: true,
             allowDestructiveActions: "never",
             appServer: { command: "codex", args: [] },
             connectors: { slack: { enabled: true } },
@@ -433,7 +426,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot,
         config: {
-          enabled: true,
           allowDestructiveActions: "on-request",
           appServer: { command: "codex", args: [] },
           connectors: { slack: { enabled: true } },
@@ -553,7 +545,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot,
         config: {
-          enabled: true,
           allowDestructiveActions: "on-request",
           appServer: { command: "codex", args: [] },
           connectors: { slack: { enabled: true } },
@@ -639,7 +630,6 @@ describe("ChatgptAppsMcpBridge", () => {
         source: "cache",
         snapshot,
         config: {
-          enabled: true,
           allowDestructiveActions: "never",
           appServer: { command: "codex", args: [] },
           connectors: {

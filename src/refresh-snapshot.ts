@@ -29,7 +29,7 @@ export type EnsureFreshSnapshotResult =
     }
   | {
       status: "error";
-      reason: "disabled" | "auth" | "refresh";
+      reason: "auth" | "refresh";
       message: string;
       config: ReturnType<typeof resolveChatgptAppsConfig>;
       openclawConfig: OpenClawConfig;
@@ -65,17 +65,6 @@ export async function ensureFreshSnapshot(params: {
     openclawConfig.plugins?.entries?.["openai-apps"]?.config ?? {},
   );
   const statePaths = params.statePaths ?? resolveChatgptAppsStatePaths(env);
-
-  if (!config.enabled) {
-    return {
-      status: "error",
-      reason: "disabled",
-      message: "ChatGPT apps are disabled in the openai-apps plugin config.",
-      config,
-      openclawConfig,
-      statePaths,
-    };
-  }
 
   const resolveProjectedAuth =
     params.resolveProjectedAuth ??

@@ -21,7 +21,6 @@ const DEFAULT_ALLOW_DESTRUCTIVE_ACTIONS = "never";
 export type AllowDestructiveActionsMode = "always" | "on-request" | "never";
 
 export type ChatgptAppsConfig = {
-  enabled: boolean;
   allowDestructiveActions: AllowDestructiveActionsMode;
   appServer: {
     command: string;
@@ -85,7 +84,6 @@ export function resolveChatgptAppsConfig(pluginConfig: unknown): ChatgptAppsConf
   const appServer = isRecord(raw.appServer) ? raw.appServer : {};
 
   return {
-    enabled: typeof raw.enabled === "boolean" ? raw.enabled : false,
     allowDestructiveActions: normalizeAllowDestructiveActions(raw.allow_destructive_actions),
     appServer: {
       command: normalizeNonEmptyString(appServer.command) ?? DEFAULT_APP_SERVER_COMMAND,
