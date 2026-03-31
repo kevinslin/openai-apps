@@ -1,6 +1,6 @@
 # OpenAI Apps
 
-Use ChatGPT apps inside OpenClaw.
+Use [ChatGPT apps](https://chatgpt.com/features/apps/) inside OpenClaw.
 
 ## Quickstart
 
@@ -51,7 +51,7 @@ openclaw models auth login --provider openai-codex
 5. Restart the OpenClaw gateway so plugin config changes are loaded.
 6. Open your normal OpenClaw chat/TUI session and issue an app-backed request (examples in `Usage` below).
 
-# Usage
+## Usage
 
 ```
 summarize my recent email
@@ -64,19 +64,18 @@ add a calendar event reminding me to walk my gerbil tomorrow at 7am for 30min
 <img width="2192" height="340" alt="CleanShot 2026-03-30 at 18 39 50@2x" src="https://github.com/user-attachments/assets/5fba2827-016b-4353-bc53-a0c5375b3b5c" />
 
 
-## Internals
-
-This bundle:
-
-- publishes one local MCP tool per enabled ChatGPT app connector
-- uses `codex app-server` as the single authority for both tool publication and invocation
-- reads OpenClaw-rooted `openai-codex` auth and projects it into the spawned app-server session
-
-Published tool names use the `chatgpt_app_<connectorId>` namespace. Each tool accepts a single natural-language `request` string and executes the app on a fresh app-server thread.
-
 ## Configuration
 
 All bundle config lives under `plugins.entries.openai-apps.config`.
+
+
+- `allow_destructive_actions`: Controls destructive app-action elicitations. Use `"always"` to auto-accept or `"never"` to auto-decline. Defaults to `"never"`.
+- `connectors`: Per-app enablement map. Use explicit connector ids like `gmail`, `linear`, or `google_calendar`.
+- `connectors["*"]`: Enables all accessible ChatGPT apps, with explicit connector entries able to disable individual apps.
+- `appServer.command` / `appServer.args`: Override how the bundle launches `codex app-server`.
+
+The ChatGPT apps endpoint is internal to the bundle and is not configurable.
+
 
 Example with one explicitly enabled connector:
 
@@ -155,14 +154,9 @@ You can combine wildcard enablement with explicit disables:
 }
 ```
 
-## Config Reference
+## Limitations
+- currently, destructive actions do not support on demand elicitation (dynamic prompting for permissions).[elicitations](https://modelcontextprotocol.io/specification/draft/client/elicitation#capabilities) are currently not supported in the openclaw pi mcp client 
 
-- `allow_destructive_actions`: Controls destructive app-action elicitations. Use `"always"` to auto-accept or `"never"` to auto-decline. Defaults to `"never"`.
-- `connectors`: Per-app enablement map. Use explicit connector ids like `gmail`, `linear`, or `google_calendar`.
-- `connectors["*"]`: Enables all accessible ChatGPT apps, with explicit connector entries able to disable individual apps.
-- `appServer.command` / `appServer.args`: Override how the bundle launches `codex app-server`.
-
-The ChatGPT apps endpoint is internal to the bundle and is not configurable.
 
 ## Runtime State
 
@@ -204,6 +198,18 @@ Example:
   ]
 }
 ```
+
+## Internals
+
+This bundle:
+
+- publishes one local MCP tool per enabled ChatGPT app connector
+- uses `codex app-server` as the single authority for both tool publication and invocation
+- reads OpenClaw-rooted `openai-codex` auth and projects it into the spawned app-server session
+
+Published tool names use the `chatgpt_app_<connectorId>` namespace. Each tool accepts a single natural-language `request` string and executes the app on a fresh app-server thread.
+
+For more information on plugin internal logic, see [flows](./docs/flows/index.md).
 
 ## Appendix
 
