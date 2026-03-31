@@ -109,7 +109,6 @@ Ordered call path:
    // Source: extensions/openai-apps/src/app-server-invoker.ts#L490-L498
    let serverRequestError := null
    handledServerRequests := new Set([
-     "item/tool/requestUserInput",
      "item/permissions/requestApproval",
      "mcpServer/elicitation/request",
      "item/commandExecution/requestApproval",

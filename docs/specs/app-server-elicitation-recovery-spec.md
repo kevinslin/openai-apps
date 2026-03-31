@@ -35,7 +35,7 @@ Make OpenAI Apps app-server invocations handle app-server elicitations correctly
 
 The introducing commit, `768ef9f5493bc335a491b43202d9013d1d1e7717`, added three changes at once inside `extensions/openai-apps/src/app-server-invoker.ts`:
 
-- it added explicit handlers for `item/tool/requestUserInput`, `item/permissions/requestApproval`, and `mcpServer/elicitation/request`
+- it added explicit server-request handlers for approvals and MCP elicitations
 - it switched invocation threads and turns to `approvalPolicy: "never"`
 - it moved each invocation into a fresh temporary `CODEX_HOME` and skipped the prior `apps` config write for that invocation session
 

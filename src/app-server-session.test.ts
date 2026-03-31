@@ -1,7 +1,7 @@
 import type { protocol } from "codex-app-server-sdk";
 import { describe, expect, it } from "vitest";
 import { createAppServerAppsConfigWriteGate } from "./app-server-apps-config.js";
-import { callAppServerMethod, captureAppServerSnapshot } from "./app-server-session.js";
+import { captureAppServerSnapshot } from "./app-server-session.js";
 import type { ChatgptAppsConfig } from "./config.js";
 import type { ChatgptAppsStatePaths } from "./state-paths.js";
 
@@ -30,76 +30,6 @@ const statePaths: ChatgptAppsStatePaths = {
 };
 
 describe("app-server session helpers", () => {
-  it("logs in, writes config, and calls the requested app-server method", async () => {
-    const events: string[] = [];
-
-    const result = await callAppServerMethod({
-      config,
-      statePaths,
-      method: "app/list",
-      methodParams: { cursor: null, forceRefetch: true },
-      resolveProjectedAuth: async () => ({
-        status: "ok",
-        accessToken: "access-token",
-        accountId: "acct_123",
-        planType: null,
-        profileId: "openai-codex:default",
-        identity: { email: "user@example.com", profileName: "user@example.com" },
-      }),
-      clientFactory: async () => ({
-        initializeSession: async () => {
-          events.push("initializeSession");
-        },
-        handleChatgptAuthTokensRefresh: () => () => {},
-        request: async (method, params) => {
-          events.push(`request:${method}:${JSON.stringify(params)}`);
-          return { data: [{ name: "gmail" }], nextCursor: null };
-        },
-        loginAccount: async (): Promise<LoginAccountResponse> => {
-          events.push("loginAccount");
-          return { type: "chatgptAuthTokens" };
-        },
-        readAccount: async (): Promise<GetAccountResponse> => ({
-          account: null,
-          requiresOpenaiAuth: false,
-        }),
-        getAuthStatus: async (): Promise<GetAuthStatusResponse> => ({
-          authMethod: "chatgpt",
-          authToken: null,
-          requiresOpenaiAuth: false,
-        }),
-        listApps: async () => ({
-          data: [],
-          nextCursor: null,
-        }),
-        writeConfigValue: async (): Promise<ConfigWriteResponse> => {
-          events.push("writeConfigValue");
-          return {
-            status: "ok",
-            version: "1",
-            filePath: "/tmp/openclaw-chatgpt-apps/config.toml",
-            overriddenMetadata: null,
-          };
-        },
-        close: async () => {
-          events.push("close");
-        },
-      }),
-    });
-
-    expect(result).toEqual({
-      data: [{ name: "gmail" }],
-      nextCursor: null,
-    });
-    expect(events).toEqual([
-      "initializeSession",
-      "loginAccount",
-      "writeConfigValue",
-      'request:app/list:{"cursor":null,"forceRefetch":true}',
-      "close",
-    ]);
-  });
-
   it("captures paginated app/list results without requiring status calls", async () => {
     const events: string[] = [];
 
@@ -120,7 +50,6 @@ describe("app-server session helpers", () => {
         return {
           initializeSession: async () => {},
           handleChatgptAuthTokensRefresh: () => () => {},
-          request: async () => null,
           loginAccount: async (): Promise<LoginAccountResponse> => ({
             type: "chatgptAuthTokens",
           }),
@@ -215,7 +144,6 @@ describe("app-server session helpers", () => {
         clientFactory: async () => ({
           initializeSession: async () => {},
           handleChatgptAuthTokensRefresh: () => () => {},
-          request: async () => null,
           loginAccount: async (): Promise<LoginAccountResponse> => ({
             type: "chatgptAuthTokens",
           }),
@@ -268,7 +196,6 @@ describe("app-server session helpers", () => {
           events.push("snapshot:initializeSession");
         },
         handleChatgptAuthTokensRefresh: () => () => {},
-        request: async () => null,
         loginAccount: async (): Promise<LoginAccountResponse> => {
           events.push("snapshot:loginAccount");
           return { type: "chatgptAuthTokens" };
@@ -301,61 +228,12 @@ describe("app-server session helpers", () => {
       }),
     });
 
-    await callAppServerMethod({
-      config,
-      statePaths,
-      method: "app/list",
-      appsConfigWriteGate,
-      resolveProjectedAuth: async () => ({
-        status: "ok",
-        accessToken: "access-token",
-        accountId: "acct_123",
-        planType: null,
-        profileId: "openai-codex:default",
-        identity: { email: "user@example.com", profileName: "user@example.com" },
-      }),
-      clientFactory: async () => ({
-        initializeSession: async () => {
-          events.push("method:initializeSession");
-        },
-        handleChatgptAuthTokensRefresh: () => () => {},
-        request: async () => {
-          events.push("method:request");
-          return { data: [], nextCursor: null };
-        },
-        loginAccount: async (): Promise<LoginAccountResponse> => {
-          events.push("method:loginAccount");
-          return { type: "chatgptAuthTokens" };
-        },
-        readAccount: async (): Promise<GetAccountResponse> => ({
-          account: null,
-          requiresOpenaiAuth: false,
-        }),
-        getAuthStatus: async (): Promise<GetAuthStatusResponse> => ({
-          authMethod: "chatgpt",
-          authToken: null,
-          requiresOpenaiAuth: false,
-        }),
-        listApps: async () => ({
-          data: [],
-          nextCursor: null,
-        }),
-        writeConfigValue: async (): Promise<ConfigWriteResponse> => {
-          events.push("method:writeConfigValue");
-          return {
-            status: "ok",
-            version: "1",
-            filePath: "/tmp/openclaw-chatgpt-apps/config.toml",
-            overriddenMetadata: null,
-          };
-        },
-        close: async () => {
-          events.push("method:close");
-        },
-      }),
-    });
-
     expect(events).toContain("snapshot:writeConfigValue");
-    expect(events).not.toContain("method:writeConfigValue");
+    expect(events).toEqual([
+      "snapshot:initializeSession",
+      "snapshot:loginAccount",
+      "snapshot:writeConfigValue",
+      "snapshot:close",
+    ]);
   });
 });
