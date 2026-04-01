@@ -643,6 +643,227 @@ describe("invokeViaAppServer", () => {
     expect(readThread).not.toHaveBeenCalled();
   });
 
+  it("accepts requestUserInput destructive prompts when configured to always allow them", async () => {
+    let requestUserInputHandler: ((context: unknown) => Promise<unknown> | unknown) | undefined;
+    const client = createMockClient({
+      handleServerRequest: (method, handler) => {
+        if (method === "item/tool/requestUserInput") {
+          requestUserInputHandler = handler as (context: unknown) => Promise<unknown> | unknown;
+        }
+        return () => {};
+      },
+      runTurn: async () => {
+        const requestParams = {
+          threadId: "thr_123",
+          turnId: "turn_123",
+          itemId: "call_123",
+          questions: [
+            {
+              id: "approval_123",
+              header: "Approve app tool call?",
+              question: "Allow Google Calendar to create an event?",
+              isOther: false,
+              isSecret: false,
+              options: [
+                {
+                  label: "Allow",
+                  description: "Run the tool and continue.",
+                },
+                {
+                  label: "Allow for this session",
+                  description: "Run the tool and remember this choice for this session.",
+                },
+                {
+                  label: "Cancel",
+                  description: "Cancel this tool call.",
+                },
+              ],
+            },
+          ],
+        } satisfies protocol.v2.ToolRequestUserInputParams;
+        const response = await requestUserInputHandler?.({
+          request: {
+            params: requestParams,
+          },
+        });
+        expect(response).toEqual({
+          answers: {
+            approval_123: {
+              answers: ["Allow"],
+            },
+          },
+        });
+        return {
+          start: {
+            turn: {
+              id: "turn_123",
+              items: [],
+              status: "inProgress",
+              error: null,
+            },
+          },
+          completed: {
+            threadId: "thr_123",
+            turn: {
+              id: "turn_123",
+              items: [],
+              status: "completed",
+              error: null,
+            },
+          },
+        };
+      },
+    });
+
+    await expect(
+      invokeViaAppServer({
+        config: {
+          ...config,
+          allowDestructiveActions: "always",
+        },
+        route: {
+          connectorId: "google_calendar",
+          appId: "asdk_app_google_calendar",
+          publishedName: "chatgpt_app_google_calendar",
+          appName: "Google Calendar",
+          appInvocationToken: "google_calendar",
+        },
+        args: { request: "Create the event" },
+        statePaths,
+        resolveProjectedAuth: async () => ({
+          status: "ok",
+          accessToken: "access-token",
+          accountId: "acct_123",
+          planType: null,
+          profileId: "openai-codex:default",
+          identity: { email: "user@example.com", profileName: "user@example.com" },
+        }),
+        clientFactory: async () => client,
+      }),
+    ).resolves.toEqual({
+      content: [{ type: "text", text: "ok" }],
+    });
+  });
+
+  it("cancels requestUserInput destructive prompts when configured to never allow them", async () => {
+    let requestUserInputHandler: ((context: unknown) => Promise<unknown> | unknown) | undefined;
+    const readThread = vi.fn<AppServerInvocationClient["readThread"]>(async () =>
+      createThreadReadResponse([
+        {
+          type: "agentMessage",
+          id: "msg_1",
+          phase: "final_answer",
+          text: "Google Calendar does not support write actions.",
+        },
+      ]),
+    );
+    const client = createMockClient({
+      readThread,
+      handleServerRequest: (method, handler) => {
+        if (method === "item/tool/requestUserInput") {
+          requestUserInputHandler = handler as (context: unknown) => Promise<unknown> | unknown;
+        }
+        return () => {};
+      },
+      runTurn: async () => {
+        const requestParams = {
+          threadId: "thr_123",
+          turnId: "turn_123",
+          itemId: "call_123",
+          questions: [
+            {
+              id: "approval_123",
+              header: "Approve app tool call?",
+              question: "Allow Google Calendar to create an event?",
+              isOther: false,
+              isSecret: false,
+              options: [
+                {
+                  label: "Allow",
+                  description: "Run the tool and continue.",
+                },
+                {
+                  label: "Allow for this session",
+                  description: "Run the tool and remember this choice for this session.",
+                },
+                {
+                  label: "Cancel",
+                  description: "Cancel this tool call.",
+                },
+              ],
+            },
+          ],
+        } satisfies protocol.v2.ToolRequestUserInputParams;
+        const response = await requestUserInputHandler?.({
+          request: {
+            params: requestParams,
+          },
+        });
+        expect(response).toEqual({
+          answers: {
+            approval_123: {
+              answers: ["Cancel"],
+            },
+          },
+        });
+        return {
+          start: {
+            turn: {
+              id: "turn_123",
+              items: [],
+              status: "inProgress",
+              error: null,
+            },
+          },
+          completed: {
+            threadId: "thr_123",
+            turn: {
+              id: "turn_123",
+              items: [],
+              status: "completed",
+              error: null,
+            },
+          },
+        };
+      },
+    });
+
+    await expect(
+      invokeViaAppServer({
+        config: {
+          ...config,
+          allowDestructiveActions: "never",
+        },
+        route: {
+          connectorId: "google_calendar",
+          appId: "asdk_app_google_calendar",
+          publishedName: "chatgpt_app_google_calendar",
+          appName: "Google Calendar",
+          appInvocationToken: "google_calendar",
+        },
+        args: { request: "Create the event" },
+        statePaths,
+        resolveProjectedAuth: async () => ({
+          status: "ok",
+          accessToken: "access-token",
+          accountId: "acct_123",
+          planType: null,
+          profileId: "openai-codex:default",
+          identity: { email: "user@example.com", profileName: "user@example.com" },
+        }),
+        clientFactory: async () => client,
+      }),
+    ).resolves.toEqual({
+      content: [
+        {
+          type: "text",
+          text: "OpenClaw is configured with allowDestructiveActions=never, so I can't perform write actions for Google Calendar.",
+        },
+      ],
+    });
+    expect(readThread).not.toHaveBeenCalled();
+  });
+
   it("delegates destructive app elicitations to the provided handler when configured for on-request", async () => {
     let elicitationHandler: ((context: unknown) => Promise<unknown> | unknown) | undefined;
     const outerElicitationHandler = vi.fn(async () => ({

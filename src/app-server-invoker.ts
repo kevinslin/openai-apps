@@ -24,6 +24,9 @@ type LoginAccountParams = protocol.v2.LoginAccountParams;
 type LoginAccountResponse = protocol.v2.LoginAccountResponse;
 type McpServerElicitationRequestParams = protocol.v2.McpServerElicitationRequestParams;
 type McpServerElicitationRequestResponse = protocol.v2.McpServerElicitationRequestResponse;
+type ToolRequestUserInputParams = protocol.v2.ToolRequestUserInputParams;
+type ToolRequestUserInputQuestion = protocol.v2.ToolRequestUserInputQuestion;
+type ToolRequestUserInputResponse = protocol.v2.ToolRequestUserInputResponse;
 type ThreadReadResponse = protocol.v2.ThreadReadResponse;
 type ThreadStartResponse = protocol.v2.ThreadStartResponse;
 type TurnCompletedNotification = protocol.v2.TurnCompletedNotification;
@@ -337,10 +340,7 @@ function buildDeclinedMcpServerElicitationResponse(): McpServerElicitationReques
   };
 }
 
-function resolveElicitationConnectorName(
-  request: McpServerElicitationRequestParams,
-): string | null {
-  const meta = request._meta;
+function resolveConnectorNameFromMeta(meta: unknown, fallback: string | null = null): string | null {
   if (
     typeof meta === "object" &&
     meta !== null &&
@@ -349,15 +349,26 @@ function resolveElicitationConnectorName(
     return ((meta as { connector_name: string }).connector_name || "").trim() || null;
   }
 
-  return request.serverName.trim() || null;
+  return fallback?.trim() || null;
+}
+
+function resolveElicitationConnectorName(request: McpServerElicitationRequestParams): string | null {
+  return resolveConnectorNameFromMeta(request._meta, request.serverName);
+}
+
+function buildAutoDeclinedDestructiveActionMessageForConnector(
+  connectorName: string | null,
+): string {
+  const suffix = connectorName ? ` for ${connectorName}` : "";
+  return `OpenClaw is configured with allowDestructiveActions=never, so I can't perform write actions${suffix}.`;
 }
 
 function buildAutoDeclinedDestructiveActionMessage(
   request: McpServerElicitationRequestParams,
 ): string {
-  const connectorName = resolveElicitationConnectorName(request);
-  const suffix = connectorName ? ` for ${connectorName}` : "";
-  return `OpenClaw is configured with allowDestructiveActions=never, so I can't perform write actions${suffix}.`;
+  return buildAutoDeclinedDestructiveActionMessageForConnector(
+    resolveElicitationConnectorName(request),
+  );
 }
 
 async function resolveMcpServerElicitationResponse(params: {
@@ -377,6 +388,61 @@ async function resolveMcpServerElicitationResponse(params: {
     return buildDeclinedMcpServerElicitationResponse();
   }
   return await params.handleMcpServerElicitation(params.request);
+}
+
+function pickToolRequestUserInputOptionLabel(params: {
+  question: ToolRequestUserInputQuestion;
+  mode: "always" | "never";
+}): string {
+  const options = params.question.options ?? [];
+  const preferredNeedles =
+    params.mode === "always"
+      ? ["allow", "accept", "continue", "approve", "yes"]
+      : ["cancel", "decline", "reject", "deny", "no"];
+  const labels = options.map((option) => ({
+    label: option.label,
+    normalized: option.label.trim().toLowerCase(),
+  }));
+
+  const exactMatch = labels.find((option) => preferredNeedles.includes(option.normalized));
+  if (exactMatch) {
+    return exactMatch.label;
+  }
+
+  const partialMatch = labels.find((option) =>
+    preferredNeedles.some((needle) => option.normalized.includes(needle)),
+  );
+  if (partialMatch) {
+    return partialMatch.label;
+  }
+
+  if (options.length > 0) {
+    return params.mode === "always" ? options[0].label : options[options.length - 1].label;
+  }
+
+  return params.mode === "always" ? "Allow" : "Cancel";
+}
+
+function buildToolRequestUserInputResponse(params: {
+  mode: AllowDestructiveActionsMode;
+  request: ToolRequestUserInputParams;
+}): ToolRequestUserInputResponse {
+  if (params.mode === "on-request") {
+    // TODO: Route requestUserInput approvals through OpenClaw's interactive approval UX.
+    throw buildApprovalError("App invocation requested interactive tool input");
+  }
+
+  const answerMode = params.mode === "always" ? "always" : "never";
+  return {
+    answers: Object.fromEntries(
+      params.request.questions.map((question) => [
+        question.id,
+        {
+          answers: [pickToolRequestUserInputOptionLabel({ question, mode: answerMode })],
+        },
+      ]),
+    ),
+  };
 }
 
 export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
@@ -507,9 +573,10 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
     );
 
     let serverRequestError: Error | null = null;
-    let autoDeclinedDestructiveAction: McpServerElicitationRequestParams | null = null;
+    let autoDeclinedDestructiveActionMessage: string | null = null;
     const handledServerRequests = new Set<string>([
       "item/permissions/requestApproval",
+      "item/tool/requestUserInput",
       "mcpServer/elicitation/request",
       "item/commandExecution/requestApproval",
       "item/fileChange/requestApproval",
@@ -551,11 +618,31 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
           handleMcpServerElicitation: params.handleMcpServerElicitation,
         });
         if (params.config.allowDestructiveActions === "never" && response.action === "decline") {
-          autoDeclinedDestructiveAction ??= context.request.params;
+          autoDeclinedDestructiveActionMessage ??= buildAutoDeclinedDestructiveActionMessage(
+            context.request.params,
+          );
         }
         writeDebugLog(
           env,
           `app-server elicitation resolved action=${response.action}`,
+          params.statePaths.rootDir,
+        );
+        return response;
+      }),
+    );
+    unsubscribeHandlers.push(
+      client.handleServerRequest("item/tool/requestUserInput", async (context) => {
+        const response = buildToolRequestUserInputResponse({
+          mode: params.config.allowDestructiveActions,
+          request: context.request.params,
+        });
+        if (params.config.allowDestructiveActions === "never") {
+          autoDeclinedDestructiveActionMessage ??=
+            buildAutoDeclinedDestructiveActionMessageForConnector(params.route.appName);
+        }
+        writeDebugLog(
+          env,
+          `app-server requestUserInput resolved answers=${serializeDebugValue(response.answers)}`,
           params.statePaths.rootDir,
         );
         return response;
@@ -650,15 +737,14 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
       throw new Error(message);
     }
 
-    if (autoDeclinedDestructiveAction) {
-      const text = buildAutoDeclinedDestructiveActionMessage(autoDeclinedDestructiveAction);
+    if (autoDeclinedDestructiveActionMessage) {
       writeDebugLog(
         env,
         "app-server invocation auto-declined destructive action",
         params.statePaths.rootDir,
       );
       return {
-        content: [{ type: "text", text }],
+        content: [{ type: "text", text: autoDeclinedDestructiveActionMessage }],
       };
     }
 
