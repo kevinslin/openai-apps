@@ -663,4 +663,71 @@ describe("ChatgptAppsMcpBridge", () => {
       await bridge.close();
     }
   });
+
+  it("adds generic routing hints for published app tools", async () => {
+    const stateDir = await createStateDir();
+    const snapshot = createPersistedSnapshot();
+    snapshot.connectors = [
+      createConnectorRecord({
+        connectorId: "gmail",
+        appId: "asdk_app_gmail",
+        appName: "Gmail",
+        publishedName: "chatgpt_app_gmail",
+        appInvocationToken: "gmail",
+        description: "Find and reference emails from your inbox",
+        pluginDisplayNames: ["Gmail"],
+      }),
+    ];
+    await writeSnapshot(stateDir, snapshot);
+
+    const bridge = new ChatgptAppsMcpBridge({
+      loadOpenClawConfig: () => createConfig({ gmail: { enabled: true } }),
+      env: createBridgeEnv(stateDir),
+      ensureFreshSnapshot: async () => ({
+        status: "ok",
+        source: "cache",
+        snapshot,
+        config: {
+          allowDestructiveActions: "never",
+          appServer: { command: "codex", args: [] },
+          connectors: { gmail: { enabled: true } },
+        },
+        openclawConfig: createConfig({ gmail: { enabled: true } }),
+        statePaths: resolveChatgptAppsStatePaths({
+          OPENCLAW_STATE_DIR: stateDir,
+          HOME: os.tmpdir(),
+        }),
+      }),
+      resolveProjectedAuth: async () => ({
+        status: "ok",
+        accessToken: "access-token",
+        accountId: "acct_123",
+        planType: null,
+        profileId: "openai-codex:default",
+        identity: { email: "user@example.com", profileName: "user@example.com" },
+      }),
+    });
+
+    try {
+      await expect(bridge.listTools()).resolves.toEqual([
+        expect.objectContaining({
+          name: "chatgpt_app_gmail",
+          description: expect.stringContaining(
+            "For clear read-only requests, call the tool directly",
+          ),
+          inputSchema: expect.objectContaining({
+            properties: expect.objectContaining({
+              request: expect.objectContaining({
+                description: expect.stringContaining(
+                  "prefer a sensible default scope instead of asking a redundant follow-up first",
+                ),
+              }),
+            }),
+          }),
+        }),
+      ]);
+    } finally {
+      await bridge.close();
+    }
+  });
 });

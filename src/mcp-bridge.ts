@@ -39,7 +39,8 @@ const CONNECTOR_TOOL_INPUT_SCHEMA = {
   properties: {
     request: {
       type: "string",
-      description: "Natural-language instruction to send to this ChatGPT app.",
+      description:
+        "Natural-language instruction to send to this ChatGPT app. For clear read-only requests, prefer a sensible default scope instead of asking a redundant follow-up first.",
     },
   },
   required: ["request"],
@@ -146,8 +147,22 @@ function buildAppRouteByConnectorId(
   return routes;
 }
 
+function buildConnectorRoutingHint(connector: PersistedConnectorRecord): string {
+  return [
+    `Use this tool for requests that clearly belong to ${connector.appName}.`,
+    "For clear read-only requests, call the tool directly even when the exact slice, filters, or time window are slightly underspecified.",
+    "Choose a sensible default and let the final answer mention the assumption briefly.",
+  ].join(" ");
+}
+
 function buildToolDescription(connector: PersistedConnectorRecord): string {
-  return `${connector.description} Send a natural-language instruction in the request field.`;
+  return [
+    connector.description.trim(),
+    buildConnectorRoutingHint(connector),
+    "Send a natural-language instruction in the request field.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function buildPublishedTool(route: BridgeRoute, connector: PersistedConnectorRecord): Tool {
