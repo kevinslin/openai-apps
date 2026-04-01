@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { protocol } from "codex-app-server-sdk";
@@ -341,6 +341,51 @@ describe("invokeViaAppServer", () => {
 
       expect(observedHomeDirs).toEqual([tempStatePaths.codexHomeDir, tempStatePaths.codexHomeDir]);
       expect((await stat(tempStatePaths.codexHomeDir)).isDirectory()).toBe(true);
+    } finally {
+      await rm(tempStatePaths.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("enables the apps feature before spawning the invocation app-server", async () => {
+    const tempStatePaths = await createTempStatePaths();
+
+    try {
+      const result = await invokeViaAppServer({
+        config,
+        route: {
+          connectorId: "gmail",
+          appId: "asdk_app_gmail",
+          publishedName: "chatgpt_app_gmail",
+          appName: "Gmail",
+          appInvocationToken: "gmail",
+        },
+        args: { request: "Summarize my recent emails" },
+        statePaths: tempStatePaths,
+        resolveProjectedAuth: async () => ({
+          status: "ok",
+          accessToken: "access-token",
+          accountId: "acct_123",
+          planType: null,
+          profileId: "openai-codex:default",
+          identity: { email: "user@example.com", profileName: "user@example.com" },
+        }),
+        clientFactory: async (factoryParams) => {
+          expect(factoryParams.env.CODEX_HOME).toBe(tempStatePaths.codexHomeDir);
+          expect(
+            await readFile(path.join(tempStatePaths.codexHomeDir, "config.toml"), "utf8"),
+          ).toContain("[features]\napps = true");
+          await expect(
+            stat(path.join(tempStatePaths.codexHomeDir, "cache", "codex_apps_tools")),
+          ).rejects.toMatchObject({
+            code: "ENOENT",
+          });
+          return createMockClient();
+        },
+      });
+
+      expect(result).toEqual({
+        content: [{ type: "text", text: "ok" }],
+      });
     } finally {
       await rm(tempStatePaths.rootDir, { recursive: true, force: true });
     }

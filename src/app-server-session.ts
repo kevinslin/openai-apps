@@ -1,4 +1,3 @@
-import { mkdir } from "node:fs/promises";
 import { CodexAppServerClient, type protocol } from "codex-app-server-sdk";
 import {
   writeDerivedAppsConfig,
@@ -6,6 +5,7 @@ import {
 } from "./app-server-apps-config.js";
 import { resolveAppServerCommand } from "./app-server-command.js";
 import type { ChatgptAppsResolvedAuth } from "./auth-projector.js";
+import { ensureBundledCodexHome } from "./codex-home-bootstrap.js";
 import type { ChatgptAppsConfig } from "./config.js";
 import type { ChatgptAppsStatePaths } from "./state-paths.js";
 
@@ -124,7 +124,9 @@ async function withLoggedInAppServerSession<TResult>(
     throw new Error(auth.message);
   }
 
-  await mkdir(params.statePaths.codexHomeDir, { recursive: true });
+  await ensureBundledCodexHome({
+    codexHomeDir: params.statePaths.codexHomeDir,
+  });
   const resolvedCommand = await resolveAppServerCommand({
     command: params.config.appServer.command,
     env,

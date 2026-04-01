@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { protocol } from "codex-app-server-sdk";
 import { describe, expect, it } from "vitest";
 import { createAppServerAppsConfigWriteGate } from "./app-server-apps-config.js";
@@ -28,6 +31,17 @@ const statePaths: ChatgptAppsStatePaths = {
   derivedConfigPath: "/tmp/openclaw-chatgpt-apps/codex-apps.config.json",
   refreshDebugPath: "/tmp/openclaw-chatgpt-apps/refresh-debug.json",
 };
+
+async function createTempStatePaths(): Promise<ChatgptAppsStatePaths> {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "openai-apps-session-"));
+  return {
+    rootDir,
+    codexHomeDir: path.join(rootDir, "codex-home"),
+    snapshotPath: path.join(rootDir, "connectors.snapshot.json"),
+    derivedConfigPath: path.join(rootDir, "codex-apps.config.json"),
+    refreshDebugPath: path.join(rootDir, "refresh-debug.json"),
+  };
+}
 
 describe("app-server session helpers", () => {
   it("captures paginated app/list results without requiring status calls", async () => {
@@ -235,5 +249,64 @@ describe("app-server session helpers", () => {
       "snapshot:writeConfigValue",
       "snapshot:close",
     ]);
+  });
+
+  it("enables the apps feature before spawning the snapshot app-server", async () => {
+    const tempStatePaths = await createTempStatePaths();
+
+    try {
+      await captureAppServerSnapshot({
+        config,
+        statePaths: tempStatePaths,
+        resolveProjectedAuth: async () => ({
+          status: "ok",
+          accessToken: "access-token",
+          accountId: "acct_123",
+          planType: null,
+          profileId: "openai-codex:default",
+          identity: { email: "user@example.com", profileName: "user@example.com" },
+        }),
+        clientFactory: async (factoryParams) => {
+          expect(factoryParams.env.CODEX_HOME).toBe(tempStatePaths.codexHomeDir);
+          expect(
+            await readFile(path.join(tempStatePaths.codexHomeDir, "config.toml"), "utf8"),
+          ).toContain("[features]\napps = true");
+          await expect(
+            stat(path.join(tempStatePaths.codexHomeDir, "cache", "codex_apps_tools")),
+          ).rejects.toMatchObject({
+            code: "ENOENT",
+          });
+          return {
+            initializeSession: async () => {},
+            handleChatgptAuthTokensRefresh: () => () => {},
+            loginAccount: async (): Promise<LoginAccountResponse> => ({
+              type: "chatgptAuthTokens",
+            }),
+            readAccount: async (): Promise<GetAccountResponse> => ({
+              account: null,
+              requiresOpenaiAuth: false,
+            }),
+            getAuthStatus: async (): Promise<GetAuthStatusResponse> => ({
+              authMethod: "chatgpt",
+              authToken: null,
+              requiresOpenaiAuth: false,
+            }),
+            listApps: async () => ({
+              data: [],
+              nextCursor: null,
+            }),
+            writeConfigValue: async (): Promise<ConfigWriteResponse> => ({
+              status: "ok",
+              version: "1",
+              filePath: "/tmp/openclaw-chatgpt-apps/config.toml",
+              overriddenMetadata: null,
+            }),
+            close: async () => {},
+          };
+        },
+      });
+    } finally {
+      await rm(tempStatePaths.rootDir, { recursive: true, force: true });
+    }
   });
 });

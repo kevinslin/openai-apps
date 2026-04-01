@@ -1,5 +1,4 @@
 import { appendFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
@@ -13,6 +12,7 @@ import {
 } from "./app-server-apps-config.js";
 import { resolveAppServerCommand } from "./app-server-command.js";
 import type { ChatgptAppsResolvedAuth } from "./auth-projector.js";
+import { ensureBundledCodexHome } from "./codex-home-bootstrap.js";
 import type { ChatgptAppsConfig, AllowDestructiveActionsMode } from "./config.js";
 import type { ChatgptAppsStatePaths } from "./state-paths.js";
 
@@ -340,7 +340,10 @@ function buildDeclinedMcpServerElicitationResponse(): McpServerElicitationReques
   };
 }
 
-function resolveConnectorNameFromMeta(meta: unknown, fallback: string | null = null): string | null {
+function resolveConnectorNameFromMeta(
+  meta: unknown,
+  fallback: string | null = null,
+): string | null {
   if (
     typeof meta === "object" &&
     meta !== null &&
@@ -352,7 +355,9 @@ function resolveConnectorNameFromMeta(meta: unknown, fallback: string | null = n
   return fallback?.trim() || null;
 }
 
-function resolveElicitationConnectorName(request: McpServerElicitationRequestParams): string | null {
+function resolveElicitationConnectorName(
+  request: McpServerElicitationRequestParams,
+): string | null {
   return resolveConnectorNameFromMeta(request._meta, request.serverName);
 }
 
@@ -470,7 +475,9 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
     params.statePaths.rootDir,
   );
 
-  await mkdir(params.statePaths.codexHomeDir, { recursive: true });
+  await ensureBundledCodexHome({
+    codexHomeDir: params.statePaths.codexHomeDir,
+  });
   const clientFactory =
     params.clientFactory ??
     (async (factoryParams) => {
