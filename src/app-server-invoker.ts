@@ -36,6 +36,7 @@ type TurnStartParams = protocol.v2.TurnStartParams;
 type UserInput = protocol.v2.UserInput;
 
 const DEFAULT_TURN_TIMEOUT_MS = 180_000;
+const BUNDLED_CODEX_CONFIG_OVERRIDES = ["analytics.enabled=false"];
 const APP_INVOCATION_APPROVAL_POLICY: NonNullable<ThreadStartParams["approvalPolicy"]> = {
   granular: {
     sandbox_approval: false,
@@ -179,6 +180,14 @@ export type AppServerInvocationClient = {
   close(): Promise<void>;
 };
 
+type AppServerInvocationClientFactoryParams = {
+  command: string;
+  args: string[];
+  configOverrides: string[];
+  cwd?: string;
+  env: NodeJS.ProcessEnv;
+};
+
 export type AppServerToolInvoker = (params: {
   config: ChatgptAppsConfig;
   route: AppServerInvocationRoute;
@@ -191,12 +200,9 @@ export type AppServerToolInvoker = (params: {
     params: McpServerElicitationRequestParams,
   ) => Promise<McpServerElicitationRequestResponse>;
   appsConfigWriteGate?: AppServerAppsConfigWriteGate;
-  clientFactory?: (params: {
-    command: string;
-    args: string[];
-    cwd?: string;
-    env: NodeJS.ProcessEnv;
-  }) => Promise<AppServerInvocationClient>;
+  clientFactory?: (
+    params: AppServerInvocationClientFactoryParams,
+  ) => Promise<AppServerInvocationClient>;
 }) => Promise<CallToolResult>;
 
 function toLoginParams(
@@ -484,9 +490,11 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
       const client = await CodexAppServerClient.spawn({
         bin: factoryParams.command,
         args: factoryParams.args,
+        configOverrides: factoryParams.configOverrides,
         cwd: factoryParams.cwd,
         env: factoryParams.env,
-        analyticsDefaultEnabled: true,
+        disableFeatures: ["plugins"],
+        analyticsDefaultEnabled: false,
         unhandledServerRequestStrategy: "manual",
       });
       return {
@@ -519,10 +527,12 @@ export const invokeViaAppServer: AppServerToolInvoker = async (params) => {
   const client = await clientFactory({
     command: resolvedCommand,
     args: params.config.appServer.args,
+    configOverrides: BUNDLED_CODEX_CONFIG_OVERRIDES,
     cwd: params.workspaceDir,
     env: {
       ...env,
       CODEX_HOME: params.statePaths.codexHomeDir,
+      ANALYTICS_DEFAULT_ENABLED: "false",
     },
   });
 

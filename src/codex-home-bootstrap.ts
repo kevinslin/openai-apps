@@ -3,43 +3,69 @@ import path from "node:path";
 
 const FEATURES_HEADER = "[features]";
 const APPS_FEATURE_LINE = "apps = true";
+const ANALYTICS_HEADER = "[analytics]";
+const ANALYTICS_DISABLED_LINE = "enabled = false";
 
 function isTableHeader(line: string): boolean {
   const trimmed = line.trim();
   return trimmed.startsWith("[") && trimmed.endsWith("]");
 }
 
-export function ensureAppsFeatureEnabledInToml(source: string): string {
+function ensureSettingInTable(params: {
+  source: string;
+  header: string;
+  key: string;
+  renderedLine: string;
+}): string {
+  const { source, header, key, renderedLine } = params;
   const lines = source.length > 0 ? source.split("\n") : [];
-  const featuresHeaderIndex = lines.findIndex((line) => line.trim() === FEATURES_HEADER);
+  const tableHeaderIndex = lines.findIndex((line) => line.trim() === header);
 
-  if (featuresHeaderIndex === -1) {
+  if (tableHeaderIndex === -1) {
     const trimmed = source.trimEnd();
     return trimmed.length > 0
-      ? `${trimmed}\n\n${FEATURES_HEADER}\n${APPS_FEATURE_LINE}\n`
-      : `${FEATURES_HEADER}\n${APPS_FEATURE_LINE}\n`;
+      ? `${trimmed}\n\n${header}\n${renderedLine}\n`
+      : `${header}\n${renderedLine}\n`;
   }
 
-  let featuresEndIndex = lines.length;
-  for (let index = featuresHeaderIndex + 1; index < lines.length; index += 1) {
+  let tableEndIndex = lines.length;
+  for (let index = tableHeaderIndex + 1; index < lines.length; index += 1) {
     if (isTableHeader(lines[index])) {
-      featuresEndIndex = index;
+      tableEndIndex = index;
       break;
     }
   }
 
-  for (let index = featuresHeaderIndex + 1; index < featuresEndIndex; index += 1) {
-    if (lines[index].trim().startsWith("apps =")) {
-      if (lines[index].trim() === APPS_FEATURE_LINE) {
+  for (let index = tableHeaderIndex + 1; index < tableEndIndex; index += 1) {
+    if (lines[index].trim().startsWith(`${key} =`)) {
+      if (lines[index].trim() === renderedLine) {
         return source;
       }
-      lines[index] = APPS_FEATURE_LINE;
+      lines[index] = renderedLine;
       return lines.join("\n");
     }
   }
 
-  lines.splice(featuresEndIndex, 0, APPS_FEATURE_LINE);
+  lines.splice(tableEndIndex, 0, renderedLine);
   return lines.join("\n");
+}
+
+export function ensureAppsFeatureEnabledInToml(source: string): string {
+  return ensureSettingInTable({
+    source,
+    header: FEATURES_HEADER,
+    key: "apps",
+    renderedLine: APPS_FEATURE_LINE,
+  });
+}
+
+export function ensureAnalyticsDisabledInToml(source: string): string {
+  return ensureSettingInTable({
+    source,
+    header: ANALYTICS_HEADER,
+    key: "enabled",
+    renderedLine: ANALYTICS_DISABLED_LINE,
+  });
 }
 
 export async function ensureBundledCodexHome(params: { codexHomeDir: string }): Promise<void> {
@@ -56,7 +82,9 @@ export async function ensureBundledCodexHome(params: { codexHomeDir: string }): 
     }
   }
 
-  const nextConfig = ensureAppsFeatureEnabledInToml(currentConfig);
+  const nextConfig = ensureAnalyticsDisabledInToml(
+    ensureAppsFeatureEnabledInToml(currentConfig),
+  );
   if (nextConfig !== currentConfig) {
     await writeFile(configPath, nextConfig, "utf8");
   }

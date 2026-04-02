@@ -268,9 +268,13 @@ describe("app-server session helpers", () => {
         }),
         clientFactory: async (factoryParams) => {
           expect(factoryParams.env.CODEX_HOME).toBe(tempStatePaths.codexHomeDir);
+          expect(factoryParams.configOverrides).toEqual(["analytics.enabled=false"]);
           expect(
             await readFile(path.join(tempStatePaths.codexHomeDir, "config.toml"), "utf8"),
           ).toContain("[features]\napps = true");
+          expect(
+            await readFile(path.join(tempStatePaths.codexHomeDir, "config.toml"), "utf8"),
+          ).toContain("[analytics]\nenabled = false");
           await expect(
             stat(path.join(tempStatePaths.codexHomeDir, "cache", "codex_apps_tools")),
           ).rejects.toMatchObject({

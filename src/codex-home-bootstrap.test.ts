@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ensureAppsFeatureEnabledInToml, ensureBundledCodexHome } from "./codex-home-bootstrap.js";
+import {
+  ensureAnalyticsDisabledInToml,
+  ensureAppsFeatureEnabledInToml,
+  ensureBundledCodexHome,
+} from "./codex-home-bootstrap.js";
 
 describe("codex home bootstrap", () => {
   it("adds the apps feature block when config.toml is empty", () => {
@@ -29,6 +33,29 @@ describe("codex home bootstrap", () => {
     );
   });
 
+  it("adds the analytics block when config.toml is empty", () => {
+    expect(ensureAnalyticsDisabledInToml("")).toBe("[analytics]\nenabled = false\n");
+  });
+
+  it("disables analytics inside an existing analytics table", () => {
+    expect(
+      ensureAnalyticsDisabledInToml(
+        ['model = "gpt-5.4"', "", "[analytics]", "enabled = true", "client_id = \"abc\"", ""].join(
+          "\n",
+        ),
+      ),
+    ).toBe(
+      [
+        'model = "gpt-5.4"',
+        "",
+        "[analytics]",
+        "enabled = false",
+        'client_id = "abc"',
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("updates config.toml without creating a codex apps cache", async () => {
     const targetRoot = await mkdtemp(path.join(os.tmpdir(), "openai-apps-bootstrap-target-"));
     const targetCodexHomeDir = path.join(targetRoot, "codex-home");
@@ -46,6 +73,9 @@ describe("codex home bootstrap", () => {
 
       expect(await readFile(path.join(targetCodexHomeDir, "config.toml"), "utf8")).toContain(
         "[features]\napps = true",
+      );
+      expect(await readFile(path.join(targetCodexHomeDir, "config.toml"), "utf8")).toContain(
+        "[analytics]\nenabled = false",
       );
       await expect(
         stat(path.join(targetCodexHomeDir, "cache", "codex_apps_tools")),

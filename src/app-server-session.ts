@@ -19,6 +19,7 @@ type GetAccountParams = protocol.v2.GetAccountParams;
 type GetAccountResponse = protocol.v2.GetAccountResponse;
 type LoginAccountParams = protocol.v2.LoginAccountParams;
 type LoginAccountResponse = protocol.v2.LoginAccountResponse;
+const BUNDLED_CODEX_CONFIG_OVERRIDES = ["analytics.enabled=false"];
 
 export type AppServerRefreshCapture = {
   apps: AppInfo[];
@@ -65,6 +66,7 @@ type AppServerSessionParams = {
   clientFactory?: (params: {
     command: string;
     args: string[];
+    configOverrides: string[];
     cwd?: string;
     env: NodeJS.ProcessEnv;
   }) => Promise<ChatgptAppsRpcClient>;
@@ -83,15 +85,18 @@ function toLoginParams(
 async function createAppServerRpcClient(factoryParams: {
   command: string;
   args: string[];
+  configOverrides: string[];
   cwd?: string;
   env: NodeJS.ProcessEnv;
 }): Promise<ChatgptAppsRpcClient> {
   const client = await CodexAppServerClient.spawn({
     bin: factoryParams.command,
     args: factoryParams.args,
+    configOverrides: factoryParams.configOverrides,
     cwd: factoryParams.cwd,
     env: factoryParams.env,
-    analyticsDefaultEnabled: true,
+    disableFeatures: ["plugins"],
+    analyticsDefaultEnabled: false,
   });
   return {
     initializeSession: () => client.initializeSession(),
@@ -137,10 +142,12 @@ async function withLoggedInAppServerSession<TResult>(
   const client = await clientFactory({
     command: resolvedCommand,
     args: params.config.appServer.args,
+    configOverrides: BUNDLED_CODEX_CONFIG_OVERRIDES,
     cwd: params.workspaceDir,
     env: {
       ...env,
       CODEX_HOME: params.statePaths.codexHomeDir,
+      ANALYTICS_DEFAULT_ENABLED: "false",
     },
   });
 
