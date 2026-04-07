@@ -18,6 +18,18 @@ import { resolveChatgptAppsStatePaths, type ChatgptAppsStatePaths } from "./stat
 
 const REFRESH_TIMEOUT_MS = 10_000;
 
+function resolveRefreshTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const rawValue = env.OPENCLAW_OPENAI_APPS_REFRESH_TIMEOUT_MS?.trim();
+  if (!rawValue) {
+    return REFRESH_TIMEOUT_MS;
+  }
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return REFRESH_TIMEOUT_MS;
+  }
+  return Math.floor(parsed);
+}
+
 export type EnsureFreshSnapshotResult =
   | {
       status: "ok";
@@ -165,7 +177,7 @@ export async function ensureFreshSnapshot(params: {
       new Promise<AppServerRefreshCapture>((_, reject) => {
         setTimeout(() => {
           reject(new Error("Timed out refreshing ChatGPT apps snapshot"));
-        }, params.refreshTimeoutMs ?? REFRESH_TIMEOUT_MS);
+        }, params.refreshTimeoutMs ?? resolveRefreshTimeoutMs(env));
       }),
     ]);
     const nextSnapshot: PersistedConnectorSnapshot = {

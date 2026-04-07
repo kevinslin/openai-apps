@@ -1,3 +1,6 @@
+import { readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -5,7 +8,6 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   type CallToolResult,
-  type ElicitRequestFormParams,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { protocol } from "codex-app-server-sdk";
@@ -20,7 +22,13 @@ import {
   type AppServerToolInvoker,
 } from "./app-server-invoker.js";
 import { resolveChatgptAppsProjectedAuth } from "./auth-projector.js";
-import { hashChatgptAppsConfig, resolveChatgptAppsConfig } from "./config.js";
+import {
+  hashChatgptAppsConfig,
+  isConnectorAlwaysAllowed,
+  markConnectorAlwaysAllow,
+  OPENAI_APPS_PLUGIN_ID,
+  resolveChatgptAppsConfig,
+} from "./config.js";
 import {
   assertValidPersistedConnectorRecord,
   normalizeConnectorKey,
@@ -29,10 +37,16 @@ import {
 } from "./connector-record.js";
 import { ensureFreshSnapshot } from "./refresh-snapshot.js";
 import { computeSnapshotKey, type PersistedConnectorSnapshot } from "./snapshot-cache.js";
+import {
+  requestOpenClawPluginApproval,
+  type PluginApprovalDecision,
+  type PluginApprovalRequest,
+} from "./openclaw-plugin-approval.js";
 import { resolveChatgptAppsStatePaths } from "./state-paths.js";
 
 export const MCP_SERVER_NAME = "openai-apps";
 const ROUTING_META_KEY = "openclaw/chatgpt-apps";
+const DEFAULT_ALWAYS_ALLOW_PERSIST_IDLE_MS = 5_000;
 const CONNECTOR_TOOL_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -183,6 +197,11 @@ type PublicationState = {
   snapshot: PersistedConnectorSnapshot;
 };
 
+type PluginApprovalRequester = (
+  request: PluginApprovalRequest,
+) => Promise<PluginApprovalDecision | null>;
+type ConnectorAlwaysAllowPersister = (connectorId: string) => Promise<void>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -213,29 +232,56 @@ function resolveDisplayedElicitationPayload(params: McpServerElicitationRequestP
   };
 }
 
-function buildDestructiveActionApprovalPrompt(
-  params: McpServerElicitationRequestParams,
-): ElicitRequestFormParams {
-  const meta = isRecord(params._meta) ? params._meta : null;
+function truncate(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+function resolveConfigPath(env: NodeJS.ProcessEnv): string {
+  const explicitPath = env.OPENCLAW_CONFIG_PATH?.trim();
+  if (explicitPath) {
+    return explicitPath;
+  }
+  const stateDir =
+    env.OPENCLAW_STATE_DIR?.trim() || path.join(env.HOME || os.homedir(), ".openclaw");
+  return path.join(stateDir, "openclaw.json");
+}
+
+function resolveAlwaysAllowPersistIdleMs(env: NodeJS.ProcessEnv): number {
+  const rawValue = env.OPENCLAW_OPENAI_APPS_ALWAYS_ALLOW_PERSIST_IDLE_MS?.trim();
+  if (!rawValue) {
+    return DEFAULT_ALWAYS_ALLOW_PERSIST_IDLE_MS;
+  }
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_ALWAYS_ALLOW_PERSIST_IDLE_MS;
+  }
+  return parsed;
+}
+
+function buildDestructiveActionApprovalRequest(params: {
+  elicitation: McpServerElicitationRequestParams;
+  route: BridgeRoute;
+}): PluginApprovalRequest {
+  const { elicitation, route } = params;
+  const meta = isRecord(elicitation._meta) ? elicitation._meta : null;
   const connectorName =
-    typeof meta?.connector_name === "string" ? meta.connector_name : params.serverName;
+    typeof meta?.connector_name === "string" ? meta.connector_name : route.appName;
   const toolTitle = typeof meta?.tool_title === "string" ? meta.tool_title : "destructive action";
-  const payload = formatJsonForPrompt(resolveDisplayedElicitationPayload(params));
+  const payload = formatJsonForPrompt(resolveDisplayedElicitationPayload(elicitation));
+  const message =
+    typeof elicitation.message === "string" && elicitation.message.trim().length > 0
+      ? elicitation.message.trim()
+      : "Approve this ChatGPT app write action.";
 
   return {
-    message: [
-      `The ${connectorName} app requested approval for ${toolTitle}.`,
-      typeof params.message === "string" && params.message.trim().length > 0 ? params.message : "",
-      "App payload:",
-      payload,
-      "Choose accept to continue or decline to reject the action.",
-    ]
-      .filter(Boolean)
-      .join("\n\n"),
-    requestedSchema: {
-      type: "object",
-      properties: {},
-    },
+    pluginId: OPENAI_APPS_PLUGIN_ID,
+    title: truncate(`Approve ${connectorName} ${toolTitle}?`, 80),
+    description: truncate(`${message}\nApp payload: ${payload}`, 256),
+    severity: "warning",
+    toolName: route.publishedName,
   };
 }
 
@@ -248,6 +294,14 @@ export class ChatgptAppsMcpBridge {
   private readonly resolveProjectedAuth;
   private readonly appServerInvoker: AppServerToolInvoker;
   private readonly appsConfigWriteGate: AppServerAppsConfigWriteGate;
+  private readonly requestPluginApproval: PluginApprovalRequester;
+  private readonly persistConnectorAlwaysAllow: ConnectorAlwaysAllowPersister;
+  private readonly alwaysAllowPersistIdleMs: number;
+  private readonly runtimeAlwaysAllowConnectorIds = new Set<string>();
+  private readonly pendingAlwaysAllowConnectorIds = new Set<string>();
+  private alwaysAllowPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private activeToolCalls = 0;
+  private lastToolActivityAtMs = 0;
   private toolCache: BridgeToolCache | null = null;
   private toolCachePromise: Promise<BridgeToolCache> | null = null;
 
@@ -258,6 +312,8 @@ export class ChatgptAppsMcpBridge {
     ensureFreshSnapshot?: typeof ensureFreshSnapshot;
     resolveProjectedAuth?: typeof resolveChatgptAppsProjectedAuth;
     appServerInvoker?: AppServerToolInvoker;
+    requestPluginApproval?: PluginApprovalRequester;
+    persistConnectorAlwaysAllow?: ConnectorAlwaysAllowPersister;
   }) {
     this.loadOpenClawConfig = params.loadOpenClawConfig;
     this.env = params.env ?? process.env;
@@ -266,6 +322,16 @@ export class ChatgptAppsMcpBridge {
     this.resolveProjectedAuth = params.resolveProjectedAuth ?? resolveChatgptAppsProjectedAuth;
     this.appServerInvoker = params.appServerInvoker ?? invokeViaAppServer;
     this.appsConfigWriteGate = createAppServerAppsConfigWriteGate();
+    this.requestPluginApproval = params.requestPluginApproval ?? requestOpenClawPluginApproval;
+    this.persistConnectorAlwaysAllow =
+      params.persistConnectorAlwaysAllow ??
+      (async (connectorId) => {
+        const configPath = resolveConfigPath(this.env);
+        const rawConfig = JSON.parse(await readFile(configPath, "utf8")) as OpenClawConfig;
+        const nextConfig = markConnectorAlwaysAllow(rawConfig, connectorId);
+        await writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, "utf8");
+      });
+    this.alwaysAllowPersistIdleMs = resolveAlwaysAllowPersistIdleMs(this.env);
 
     this.server = new Server(
       {
@@ -304,6 +370,8 @@ export class ChatgptAppsMcpBridge {
   async close(): Promise<void> {
     this.toolCache = null;
     this.toolCachePromise = null;
+    this.clearAlwaysAllowPersistTimer();
+    await this.flushPendingAlwaysAllowConnectors();
     await this.server.close();
   }
 
@@ -314,29 +382,45 @@ export class ChatgptAppsMcpBridge {
   }
 
   async callTool(name: string, args: Record<string, unknown> | undefined): Promise<CallToolResult> {
-    const publicationState = await this.getPublicationState();
-    const cache = await this.getToolCache(publicationState);
-    const route = cache.routes.get(name);
-    if (!route) {
-      throw new Error(`Unknown ChatGPT app tool: ${name}`);
-    }
+    this.activeToolCalls += 1;
+    this.recordToolActivity();
+    try {
+      const publicationState = await this.getPublicationState();
+      const cache = await this.getToolCache(publicationState);
+      const route = cache.routes.get(name);
+      if (!route) {
+        throw new Error(`Unknown ChatGPT app tool: ${name}`);
+      }
 
-    return await this.appServerInvoker({
-      config: publicationState.config,
-      route,
-      args,
-      statePaths: resolveChatgptAppsStatePaths(this.env),
-      workspaceDir: this.workspaceDir,
-      env: this.env,
-      appsConfigWriteGate: this.appsConfigWriteGate,
-      handleMcpServerElicitation: async (elicitation) =>
-        await this.handleMcpServerElicitation(elicitation),
-      resolveProjectedAuth: async () =>
-        await this.resolveProjectedAuth({
-          config: this.loadOpenClawConfig(),
-          agentDir: this.env.OPENCLAW_AGENT_DIR,
-        }),
-    });
+      return await this.appServerInvoker({
+        config: publicationState.config,
+        route,
+        args,
+        statePaths: resolveChatgptAppsStatePaths(this.env),
+        workspaceDir: this.workspaceDir,
+        env: this.env,
+        appsConfigWriteGate: this.appsConfigWriteGate,
+        handleMcpServerElicitation: async (elicitation) =>
+          await this.handleMcpServerElicitation({
+            elicitation,
+            route,
+            config: publicationState.config,
+          }),
+        resolveProjectedAuth: async () =>
+          await this.resolveProjectedAuth({
+            config: this.loadOpenClawConfig(),
+            agentDir: this.env.OPENCLAW_AGENT_DIR,
+          }),
+      });
+    } finally {
+      this.activeToolCalls = Math.max(0, this.activeToolCalls - 1);
+      this.recordToolActivity();
+      if (this.activeToolCalls === 0 && this.pendingAlwaysAllowConnectorIds.size > 0) {
+        await this.flushPendingAlwaysAllowConnectors();
+      } else {
+        this.scheduleAlwaysAllowPersistence();
+      }
+    }
   }
 
   private async getPublicationState(): Promise<PublicationState> {
@@ -429,9 +513,30 @@ export class ChatgptAppsMcpBridge {
     };
   }
 
-  private async handleMcpServerElicitation(elicitation: McpServerElicitationRequestParams) {
-    const result = await this.server.elicitInput(buildDestructiveActionApprovalPrompt(elicitation));
-    if (result.action !== "accept") {
+  private async handleMcpServerElicitation(params: {
+    elicitation: McpServerElicitationRequestParams;
+    route: BridgeRoute;
+    config: ReturnType<typeof resolveChatgptAppsConfig>;
+  }) {
+    if (
+      this.runtimeAlwaysAllowConnectorIds.has(params.route.connectorId) ||
+      isConnectorAlwaysAllowed(params.config, params.route.connectorId)
+    ) {
+      return {
+        action: "accept",
+        content: {},
+        _meta: null,
+      } as const;
+    }
+
+    const decision = await this.requestPluginApproval(
+      buildDestructiveActionApprovalRequest({
+        elicitation: params.elicitation,
+        route: params.route,
+      }),
+    );
+
+    if (decision !== "allow-once" && decision !== "allow-always") {
       return {
         action: "decline",
         content: null,
@@ -439,11 +544,77 @@ export class ChatgptAppsMcpBridge {
       } as const;
     }
 
+    if (decision === "allow-always") {
+      this.runtimeAlwaysAllowConnectorIds.add(params.route.connectorId);
+      this.pendingAlwaysAllowConnectorIds.add(params.route.connectorId);
+      this.scheduleAlwaysAllowPersistence();
+    }
+
     return {
       action: "accept",
       content: {},
       _meta: null,
     } as const;
+  }
+
+  private recordToolActivity(): void {
+    this.lastToolActivityAtMs = Date.now();
+  }
+
+  private clearAlwaysAllowPersistTimer(): void {
+    if (this.alwaysAllowPersistTimer) {
+      clearTimeout(this.alwaysAllowPersistTimer);
+      this.alwaysAllowPersistTimer = null;
+    }
+  }
+
+  private scheduleAlwaysAllowPersistence(): void {
+    if (this.pendingAlwaysAllowConnectorIds.size === 0) {
+      return;
+    }
+    this.clearAlwaysAllowPersistTimer();
+
+    const idleForMs = Date.now() - this.lastToolActivityAtMs;
+    const delayMs =
+      this.activeToolCalls > 0
+        ? this.alwaysAllowPersistIdleMs
+        : Math.max(0, this.alwaysAllowPersistIdleMs - idleForMs);
+
+    this.alwaysAllowPersistTimer = setTimeout(() => {
+      this.alwaysAllowPersistTimer = null;
+      const idleForMs = Date.now() - this.lastToolActivityAtMs;
+      if (this.activeToolCalls > 0 || idleForMs < this.alwaysAllowPersistIdleMs) {
+        this.scheduleAlwaysAllowPersistence();
+        return;
+      }
+      void this.flushPendingAlwaysAllowConnectors().catch(() => {
+        this.scheduleAlwaysAllowPersistence();
+      });
+    }, delayMs);
+  }
+
+  private async flushPendingAlwaysAllowConnectors(): Promise<void> {
+    this.clearAlwaysAllowPersistTimer();
+    const connectorIds = [...this.pendingAlwaysAllowConnectorIds];
+    this.pendingAlwaysAllowConnectorIds.clear();
+
+    const failedConnectorIds: string[] = [];
+    for (const connectorId of connectorIds) {
+      try {
+        await this.persistConnectorAlwaysAllow(connectorId);
+      } catch {
+        failedConnectorIds.push(connectorId);
+      }
+    }
+
+    for (const connectorId of failedConnectorIds) {
+      this.pendingAlwaysAllowConnectorIds.add(connectorId);
+    }
+    if (failedConnectorIds.length > 0) {
+      throw new Error(
+        `Failed to persist always_allow for connector(s): ${failedConnectorIds.join(", ")}`,
+      );
+    }
   }
 }
 

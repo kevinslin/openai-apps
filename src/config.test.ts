@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildDerivedAppsConfig,
   hashChatgptAppsConfig,
+  isConnectorAlwaysAllowed,
+  markConnectorAlwaysAllow,
   resolveChatgptAppsConfig,
 } from "./config.js";
 
@@ -27,6 +29,7 @@ describe("resolveChatgptAppsConfig", () => {
       connectors: {
         Slack: {
           enabled: false,
+          always_allow: true,
         },
         Gmail: {},
       },
@@ -38,9 +41,10 @@ describe("resolveChatgptAppsConfig", () => {
       args: ["--foo"],
     });
     expect(config.connectors).toEqual({
-      Slack: { enabled: false },
-      Gmail: { enabled: true },
+      Slack: { enabled: false, alwaysAllow: true },
+      Gmail: { enabled: true, alwaysAllow: false },
     });
+    expect(isConnectorAlwaysAllowed(config, "slack")).toBe(true);
   });
 
   it("ignores legacy nested enabled flags", () => {
@@ -60,7 +64,7 @@ describe("resolveChatgptAppsConfig", () => {
         args: [],
       },
       connectors: {
-        gmail: { enabled: true },
+        gmail: { enabled: true, alwaysAllow: false },
       },
     });
   });
@@ -72,8 +76,8 @@ describe("buildDerivedAppsConfig", () => {
       allowDestructiveActions: "always",
       appServer: { command: "codex", args: [] },
       connectors: {
-        "*": { enabled: true },
-        slack: { enabled: false },
+        "*": { enabled: true, alwaysAllow: false },
+        slack: { enabled: false, alwaysAllow: false },
       },
     });
 
@@ -96,7 +100,7 @@ describe("buildDerivedAppsConfig", () => {
       allowDestructiveActions: "always",
       appServer: { command: "codex", args: [] },
       connectors: {
-        gmail: { enabled: true },
+        gmail: { enabled: true, alwaysAllow: false },
       },
     });
 
@@ -126,8 +130,8 @@ describe("buildDerivedAppsConfig", () => {
       allowDestructiveActions: "never",
       appServer: { command: "codex", args: [] },
       connectors: {
-        "*": { enabled: true },
-        gmail: { enabled: true },
+        "*": { enabled: true, alwaysAllow: false },
+        gmail: { enabled: true, alwaysAllow: false },
       },
     });
 
@@ -141,6 +145,33 @@ describe("buildDerivedAppsConfig", () => {
         enabled: true,
         destructive_enabled: true,
         open_world_enabled: true,
+      },
+    });
+  });
+});
+
+describe("markConnectorAlwaysAllow", () => {
+  it("persists always_allow under the plugin connector config", () => {
+    expect(
+      markConnectorAlwaysAllow(
+        {
+          plugins: {
+            entries: {
+              "openai-apps": {
+                config: {
+                  connectors: {
+                    Slack: { enabled: false },
+                  },
+                },
+              },
+            },
+          },
+        },
+        "slack",
+      ).plugins?.entries?.["openai-apps"]?.config,
+    ).toEqual({
+      connectors: {
+        Slack: { enabled: false, always_allow: true },
       },
     });
   });
