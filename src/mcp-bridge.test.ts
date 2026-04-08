@@ -661,11 +661,96 @@ describe("ChatgptAppsMcpBridge", () => {
       });
 
       expect(requestPluginApproval).toHaveBeenCalledTimes(1);
+      expect(persistConnectorAlwaysAllow).toHaveBeenCalledWith("slack");
     } finally {
       await Promise.all([client.close(), bridge.close()]);
     }
+  });
 
-    expect(persistConnectorAlwaysAllow).toHaveBeenCalledWith("slack");
+  it("does not fail an approved app call when allow-always persistence fails", async () => {
+    const stateDir = await createStateDir();
+    const snapshot = createPersistedSnapshot();
+    await writeSnapshot(stateDir, snapshot);
+    const requestPluginApproval = vi.fn(async () => "allow-always" as const);
+    const persistConnectorAlwaysAllow = vi.fn(async () => {
+      throw new Error("config is read-only");
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const appServerInvoker = vi.fn(async (params) => {
+      await params.handleMcpServerElicitation?.({
+        threadId: "thr_123",
+        turnId: "turn_123",
+        serverName: "codex_apps",
+        mode: "form",
+        _meta: {
+          connector_name: "Slack",
+          tool_title: "post_message",
+          tool_params: {
+            channel: "#launch",
+          },
+        },
+        message: "Allow Slack to post a message?",
+        requestedSchema: {
+          type: "object",
+          properties: {},
+        },
+      });
+
+      return {
+        content: [{ type: "text" as const, text: "posted" }],
+      };
+    });
+
+    const bridge = new ChatgptAppsMcpBridge({
+      loadOpenClawConfig: () => createConfig(),
+      env: createBridgeEnv(stateDir),
+      ensureFreshSnapshot: async () => ({
+        status: "ok",
+        source: "cache",
+        snapshot,
+        config: {
+          allowDestructiveActions: "on-request",
+          appServer: { command: "codex", args: [] },
+          connectors: { slack: { enabled: true } },
+        },
+        openclawConfig: createConfig(),
+        statePaths: resolveChatgptAppsStatePaths({
+          OPENCLAW_STATE_DIR: stateDir,
+          HOME: os.tmpdir(),
+        }),
+      }),
+      resolveProjectedAuth: async () => ({
+        status: "ok",
+        accessToken: "access-token",
+        accountId: "acct_123",
+        planType: null,
+        profileId: "openai-codex:default",
+        identity: { email: "user@example.com", profileName: "user@example.com" },
+      }),
+      appServerInvoker,
+      requestPluginApproval,
+      persistConnectorAlwaysAllow,
+    });
+
+    const client = new Client({ name: "test-client", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([bridge.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      await expect(
+        client.callTool({
+          name: "chatgpt_app_slack",
+          arguments: { request: "Send a launch update to #launch" },
+        }),
+      ).resolves.toEqual({
+        content: [{ type: "text", text: "posted" }],
+      });
+      expect(persistConnectorAlwaysAllow).toHaveBeenCalledWith("slack");
+    } finally {
+      await Promise.all([client.close(), bridge.close()]);
+      consoleError.mockRestore();
+    }
   });
 
   it("honors wildcard enablement with explicit disables", async () => {

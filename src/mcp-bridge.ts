@@ -47,6 +47,8 @@ import { resolveChatgptAppsStatePaths } from "./state-paths.js";
 export const MCP_SERVER_NAME = "openai-apps";
 const ROUTING_META_KEY = "openclaw/chatgpt-apps";
 const DEFAULT_ALWAYS_ALLOW_PERSIST_IDLE_MS = 5_000;
+const DEFAULT_ALWAYS_ALLOW_PERSIST_MAX_RETRIES = 3;
+const MAX_ALWAYS_ALLOW_PERSIST_RETRY_DELAY_MS = 60_000;
 const CONNECTOR_TOOL_INPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -300,6 +302,7 @@ export class ChatgptAppsMcpBridge {
   private readonly runtimeAlwaysAllowConnectorIds = new Set<string>();
   private readonly pendingAlwaysAllowConnectorIds = new Set<string>();
   private alwaysAllowPersistTimer: ReturnType<typeof setTimeout> | null = null;
+  private alwaysAllowPersistFailureCount = 0;
   private activeToolCalls = 0;
   private lastToolActivityAtMs = 0;
   private toolCache: BridgeToolCache | null = null;
@@ -327,9 +330,20 @@ export class ChatgptAppsMcpBridge {
       params.persistConnectorAlwaysAllow ??
       (async (connectorId) => {
         const configPath = resolveConfigPath(this.env);
-        const rawConfig = JSON.parse(await readFile(configPath, "utf8")) as OpenClawConfig;
-        const nextConfig = markConnectorAlwaysAllow(rawConfig, connectorId);
-        await writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, "utf8");
+        try {
+          const rawConfig = JSON.parse(await readFile(configPath, "utf8")) as OpenClawConfig;
+          const nextConfig = markConnectorAlwaysAllow(rawConfig, connectorId);
+          await writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, "utf8");
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : error === undefined ? "unknown error" : String(error);
+          console.error(
+            `Failed to persist openai-apps always_allow for connector ${connectorId} at ${configPath}: ${message}`,
+          );
+          throw new Error(
+            `Failed to persist openai-apps always_allow for connector ${connectorId} at ${configPath}: ${message}`,
+          );
+        }
       });
     this.alwaysAllowPersistIdleMs = resolveAlwaysAllowPersistIdleMs(this.env);
 
@@ -371,7 +385,8 @@ export class ChatgptAppsMcpBridge {
     this.toolCache = null;
     this.toolCachePromise = null;
     this.clearAlwaysAllowPersistTimer();
-    await this.flushPendingAlwaysAllowConnectors();
+    await this.flushPendingAlwaysAllowConnectors({ scheduleRetry: false });
+    this.clearAlwaysAllowPersistTimer();
     await this.server.close();
   }
 
@@ -547,6 +562,7 @@ export class ChatgptAppsMcpBridge {
     if (decision === "allow-always") {
       this.runtimeAlwaysAllowConnectorIds.add(params.route.connectorId);
       this.pendingAlwaysAllowConnectorIds.add(params.route.connectorId);
+      this.alwaysAllowPersistFailureCount = 0;
       this.scheduleAlwaysAllowPersistence();
     }
 
@@ -568,17 +584,20 @@ export class ChatgptAppsMcpBridge {
     }
   }
 
-  private scheduleAlwaysAllowPersistence(): void {
+  private scheduleAlwaysAllowPersistence(delayOverrideMs?: number): void {
     if (this.pendingAlwaysAllowConnectorIds.size === 0) {
       return;
     }
     this.clearAlwaysAllowPersistTimer();
 
     const idleForMs = Date.now() - this.lastToolActivityAtMs;
-    const delayMs =
-      this.activeToolCalls > 0
-        ? this.alwaysAllowPersistIdleMs
-        : Math.max(0, this.alwaysAllowPersistIdleMs - idleForMs);
+    const delayMs = Math.max(
+      0,
+      delayOverrideMs ??
+        (this.activeToolCalls > 0
+          ? this.alwaysAllowPersistIdleMs
+          : Math.max(0, this.alwaysAllowPersistIdleMs - idleForMs)),
+    );
 
     this.alwaysAllowPersistTimer = setTimeout(() => {
       this.alwaysAllowPersistTimer = null;
@@ -587,15 +606,19 @@ export class ChatgptAppsMcpBridge {
         this.scheduleAlwaysAllowPersistence();
         return;
       }
-      void this.flushPendingAlwaysAllowConnectors().catch(() => {
-        this.scheduleAlwaysAllowPersistence();
-      });
+      void this.flushPendingAlwaysAllowConnectors();
     }, delayMs);
   }
 
-  private async flushPendingAlwaysAllowConnectors(): Promise<void> {
+  private async flushPendingAlwaysAllowConnectors(
+    params: { scheduleRetry?: boolean } = { scheduleRetry: true },
+  ): Promise<boolean> {
     this.clearAlwaysAllowPersistTimer();
     const connectorIds = [...this.pendingAlwaysAllowConnectorIds];
+    if (connectorIds.length === 0) {
+      this.alwaysAllowPersistFailureCount = 0;
+      return true;
+    }
     this.pendingAlwaysAllowConnectorIds.clear();
 
     const failedConnectorIds: string[] = [];
@@ -611,10 +634,25 @@ export class ChatgptAppsMcpBridge {
       this.pendingAlwaysAllowConnectorIds.add(connectorId);
     }
     if (failedConnectorIds.length > 0) {
-      throw new Error(
-        `Failed to persist always_allow for connector(s): ${failedConnectorIds.join(", ")}`,
+      this.alwaysAllowPersistFailureCount += 1;
+      if (
+        params.scheduleRetry === false ||
+        this.alwaysAllowPersistFailureCount > DEFAULT_ALWAYS_ALLOW_PERSIST_MAX_RETRIES
+      ) {
+        console.error(
+          `Failed to persist always_allow for connector(s) after ${this.alwaysAllowPersistFailureCount} attempts: ${failedConnectorIds.join(", ")}`,
+        );
+        return false;
+      }
+      const retryDelayMs = Math.min(
+        this.alwaysAllowPersistIdleMs * 2 ** (this.alwaysAllowPersistFailureCount - 1),
+        MAX_ALWAYS_ALLOW_PERSIST_RETRY_DELAY_MS,
       );
+      this.scheduleAlwaysAllowPersistence(retryDelayMs);
+      return false;
     }
+    this.alwaysAllowPersistFailureCount = 0;
+    return true;
   }
 }
 
