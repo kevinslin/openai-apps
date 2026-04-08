@@ -180,6 +180,36 @@ describe("ensureFreshSnapshot", () => {
     });
   });
 
+  it("uses a one-hour refresh timeout by default", async () => {
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-chatgpt-apps-"));
+    const env = {
+      OPENCLAW_STATE_DIR: tempRoot,
+      HOME: tempRoot,
+    };
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      const result = await ensureFreshSnapshot({
+        loadOpenClawConfig: () => createConfig(),
+        env,
+        now: () => new Date("2026-03-29T18:01:00.000Z").getTime(),
+        resolveProjectedAuth: async () => ({
+          status: "ok",
+          accessToken: "access-token",
+          accountId: "acct_123",
+          planType: null,
+          profileId: "openai-codex:default",
+          identity: { email: "user@example.com", profileName: "user@example.com" },
+        }),
+        captureSnapshot: async () => createCapture(),
+      });
+
+      expect(result.status).toBe("ok");
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3_600_000);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it("ignores legacy nested enabled=false and still refreshes", async () => {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-chatgpt-apps-"));
     const env = {

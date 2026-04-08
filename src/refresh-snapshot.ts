@@ -16,7 +16,7 @@ import {
 } from "./snapshot-cache.js";
 import { resolveChatgptAppsStatePaths, type ChatgptAppsStatePaths } from "./state-paths.js";
 
-const REFRESH_TIMEOUT_MS = 10_000;
+const REFRESH_TIMEOUT_MS = 60 * 60 * 1_000;
 
 export type EnsureFreshSnapshotResult =
   | {
