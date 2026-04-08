@@ -16,7 +16,7 @@ import {
 } from "./snapshot-cache.js";
 import { resolveChatgptAppsStatePaths, type ChatgptAppsStatePaths } from "./state-paths.js";
 
-const REFRESH_TIMEOUT_MS = 10_000;
+const REFRESH_TIMEOUT_MS = 60 * 60 * 1_000;
 
 export type EnsureFreshSnapshotResult =
   | {
@@ -147,6 +147,7 @@ export async function ensureFreshSnapshot(params: {
         now,
       }));
 
+  let refreshTimeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const capture = await Promise.race([
       captureSnapshot({
@@ -163,7 +164,7 @@ export async function ensureFreshSnapshot(params: {
         now,
       }),
       new Promise<AppServerRefreshCapture>((_, reject) => {
-        setTimeout(() => {
+        refreshTimeout = setTimeout(() => {
           reject(new Error("Timed out refreshing ChatGPT apps snapshot"));
         }, params.refreshTimeoutMs ?? REFRESH_TIMEOUT_MS);
       }),
@@ -215,5 +216,9 @@ export async function ensureFreshSnapshot(params: {
       openclawConfig,
       statePaths,
     };
+  } finally {
+    if (refreshTimeout) {
+      clearTimeout(refreshTimeout);
+    }
   }
 }
