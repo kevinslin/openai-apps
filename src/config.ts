@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { protocol } from "codex-app-server-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 
 type AppsDefaultConfig = protocol.v2.AppsDefaultConfig;
 type DerivedAppConfig = {
@@ -16,8 +17,13 @@ type DerivedAppsConfig = {
 
 const DEFAULT_APP_SERVER_COMMAND = "codex";
 const DEFAULT_ALLOW_DESTRUCTIVE_ACTIONS = "never";
+export const OPENAI_APPS_PLUGIN_ID = "openai-apps";
 
 export type AllowDestructiveActionsMode = "always" | "on-request" | "never";
+export type ChatgptAppsConnectorConfig = {
+  enabled: boolean;
+  alwaysAllow?: boolean;
+};
 
 export type ChatgptAppsConfig = {
   allowDestructiveActions: AllowDestructiveActionsMode;
@@ -25,7 +31,7 @@ export type ChatgptAppsConfig = {
     command: string;
     args: string[];
   };
-  connectors: Record<string, { enabled: boolean }>;
+  connectors: Record<string, ChatgptAppsConnectorConfig>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -69,9 +75,62 @@ function normalizeConnectors(value: unknown): ChatgptAppsConfig["connectors"] {
     }
     normalized[trimmedId] = {
       enabled: !isRecord(entry) || typeof entry.enabled !== "boolean" ? true : entry.enabled,
+      alwaysAllow: isRecord(entry) && entry.always_allow === true,
     };
   }
   return normalized;
+}
+
+function normalizeConnectorKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
+export function isConnectorAlwaysAllowed(
+  config: ChatgptAppsConfig,
+  connectorId: string,
+): boolean {
+  const normalizedConnectorId = normalizeConnectorKey(connectorId);
+  for (const [configuredId, connector] of Object.entries(config.connectors)) {
+    if (normalizeConnectorKey(configuredId) === normalizedConnectorId) {
+      return connector.alwaysAllow === true;
+    }
+  }
+  return false;
+}
+
+export function markConnectorAlwaysAllow(
+  openClawConfig: OpenClawConfig,
+  connectorId: string,
+): OpenClawConfig {
+  const config = structuredClone(openClawConfig) as OpenClawConfig;
+  config.plugins ??= {};
+  config.plugins.entries ??= {};
+  const pluginEntry = (config.plugins.entries[OPENAI_APPS_PLUGIN_ID] ??= {});
+  const pluginConfig = (pluginEntry.config ??= {});
+  const connectors = isRecord(pluginConfig.connectors) ? pluginConfig.connectors : {};
+  pluginConfig.connectors = connectors;
+
+  let targetConnectorId = connectorId;
+  const normalizedConnectorId = normalizeConnectorKey(connectorId);
+  for (const configuredId of Object.keys(connectors)) {
+    if (normalizeConnectorKey(configuredId) === normalizedConnectorId) {
+      targetConnectorId = configuredId;
+      break;
+    }
+  }
+
+  const connector = isRecord(connectors[targetConnectorId]) ? connectors[targetConnectorId] : {};
+  connectors[targetConnectorId] = {
+    ...connector,
+    enabled: typeof connector.enabled === "boolean" ? connector.enabled : true,
+    always_allow: true,
+  };
+  return config;
 }
 
 export function resolveChatgptAppsConfig(pluginConfig: unknown): ChatgptAppsConfig {

@@ -17,6 +17,40 @@ import {
 import { resolveChatgptAppsStatePaths, type ChatgptAppsStatePaths } from "./state-paths.js";
 
 const REFRESH_TIMEOUT_MS = 10_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+function resolveRefreshTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const rawValue = env.OPENCLAW_OPENAI_APPS_REFRESH_TIMEOUT_MS?.trim();
+  if (!rawValue) {
+    return REFRESH_TIMEOUT_MS;
+  }
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return REFRESH_TIMEOUT_MS;
+  }
+  const timeoutMs = Math.floor(parsed);
+  if (timeoutMs < 1 || timeoutMs > MAX_TIMER_DELAY_MS) {
+    return REFRESH_TIMEOUT_MS;
+  }
+  return timeoutMs;
+}
+
+function resolveEffectiveRefreshTimeoutMs(
+  refreshTimeoutMs: number | undefined,
+  env: NodeJS.ProcessEnv,
+): number {
+  if (refreshTimeoutMs === undefined) {
+    return resolveRefreshTimeoutMs(env);
+  }
+  if (!Number.isFinite(refreshTimeoutMs)) {
+    return resolveRefreshTimeoutMs(env);
+  }
+  const timeoutMs = Math.floor(refreshTimeoutMs);
+  if (timeoutMs < 1 || timeoutMs > MAX_TIMER_DELAY_MS) {
+    return resolveRefreshTimeoutMs(env);
+  }
+  return timeoutMs;
+}
 
 export type EnsureFreshSnapshotResult =
   | {
@@ -165,7 +199,7 @@ export async function ensureFreshSnapshot(params: {
       new Promise<AppServerRefreshCapture>((_, reject) => {
         setTimeout(() => {
           reject(new Error("Timed out refreshing ChatGPT apps snapshot"));
-        }, params.refreshTimeoutMs ?? REFRESH_TIMEOUT_MS);
+        }, resolveEffectiveRefreshTimeoutMs(params.refreshTimeoutMs, env));
       }),
     ]);
     const nextSnapshot: PersistedConnectorSnapshot = {
