@@ -180,13 +180,14 @@ describe("ensureFreshSnapshot", () => {
     });
   });
 
-  it("uses a one-hour refresh timeout by default", async () => {
+  it("uses a one-hour refresh timeout by default and clears it after success", async () => {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-chatgpt-apps-"));
     const env = {
       OPENCLAW_STATE_DIR: tempRoot,
       HOME: tempRoot,
     };
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
     try {
       const result = await ensureFreshSnapshot({
         loadOpenClawConfig: () => createConfig(),
@@ -205,7 +206,9 @@ describe("ensureFreshSnapshot", () => {
 
       expect(result.status).toBe("ok");
       expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3_600_000);
+      expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
     } finally {
+      clearTimeoutSpy.mockRestore();
       setTimeoutSpy.mockRestore();
     }
   });
